@@ -126,26 +126,32 @@ console.log("ScriptingModule: Modulo in modalità idle");
 )";
 
 const char* ScriptingModule::SCRIPT_LOOP = R"(
-    // Script loop - test timer
-    console.log("ScriptingModule: Avvio script IDLE");
-    console.log("ScriptingModule: Modulo in modalità idle");
+    // Script con API Meshtastic
+    console.log("ScriptingModule: Avvio script IDLE con API Meshtastic");
     
-    // Esempio di script con setup() e loop()
+    var counter = 0;
+    
     function setup() {
         console.log("ScriptingModule: Setup IDLE completato");
+        console.log("ScriptingModule: Configurando GPIO per LED");
+        
+        // Configura GPIO per LED built-in (pin 2)
+        gpio.pinMode(2, gpio.OUTPUT);
     }
     
     function loop() {
-        console.log("ScriptingModule: Loop IDLE attivo");
-        // Simula lavoro
-        delay(1000);
+        counter++;
+        console.log("ScriptingModule: Loop IDLE attivo", counter);
+        
+        // Accendi/spegni LED
+        gpio.digitalWrite(2, counter % 2);
+        
+        // Test delay
+        delay(100);
     }
     
     // Avvia setup e loop
     setup();
-    while(true) {
-        loop();
-    }
     )";
 
 const char* ScriptingModule::SCRIPT_MESH_TEST = R"(
@@ -223,9 +229,10 @@ void ScriptingModule::setup()
     }
 }
 
+
 bool ScriptingModule::initDuktape()
 {
-    LOG_INFO("ScriptingModule: Inizializzazione Duktape...");
+    LOG_INFO("ScriptingModule: Inizializzazione Duktape standard...");
     
     // Crea il context Duktape
     jsContext = duk_create_heap_default();
@@ -258,7 +265,67 @@ void ScriptingModule::cleanupDuktape()
 void ScriptingModule::exposeGPIOAPI()
 {
     LOG_INFO("ScriptingModule: Esposizione API GPIO");
-    // TODO: Implementare binding GPIO per JavaScript
+    
+    // Crea oggetto gpio
+    duk_push_object(jsContext);
+    
+    // Costanti GPIO
+    duk_push_int(jsContext, OUTPUT);
+    duk_put_prop_string(jsContext, -2, "OUTPUT");
+    duk_push_int(jsContext, INPUT);
+    duk_put_prop_string(jsContext, -2, "INPUT");
+    duk_push_int(jsContext, INPUT_PULLUP);
+    duk_put_prop_string(jsContext, -2, "INPUT_PULLUP");
+    
+    // Metodo pinMode
+    duk_push_c_function(jsContext, [](duk_context *ctx) -> duk_ret_t {
+        int pin = duk_get_int(ctx, 0);
+        int mode = duk_get_int(ctx, 1);
+        pinMode(pin, mode);
+        return 0;
+    }, 2);
+    duk_put_prop_string(jsContext, -2, "pinMode");
+    
+    // Metodo digitalWrite
+    duk_push_c_function(jsContext, [](duk_context *ctx) -> duk_ret_t {
+        int pin = duk_get_int(ctx, 0);
+        int value = duk_get_int(ctx, 1);
+        digitalWrite(pin, value);
+        return 0;
+    }, 2);
+    duk_put_prop_string(jsContext, -2, "digitalWrite");
+    
+    // Metodo digitalRead
+    duk_push_c_function(jsContext, [](duk_context *ctx) -> duk_ret_t {
+        int pin = duk_get_int(ctx, 0);
+        int value = digitalRead(pin);
+        duk_push_int(ctx, value);
+        return 1;
+    }, 1);
+    duk_put_prop_string(jsContext, -2, "digitalRead");
+    
+    // Metodo analogRead
+    duk_push_c_function(jsContext, [](duk_context *ctx) -> duk_ret_t {
+        int pin = duk_get_int(ctx, 0);
+        int value = analogRead(pin);
+        duk_push_int(ctx, value);
+        return 1;
+    }, 1);
+    duk_put_prop_string(jsContext, -2, "analogRead");
+    
+    // Metodo analogWrite
+    duk_push_c_function(jsContext, [](duk_context *ctx) -> duk_ret_t {
+        int pin = duk_get_int(ctx, 0);
+        int value = duk_get_int(ctx, 1);
+        analogWrite(pin, value);
+        return 0;
+    }, 2);
+    duk_put_prop_string(jsContext, -2, "analogWrite");
+    
+    // Espone l'oggetto gpio globalmente
+    duk_put_global_string(jsContext, "gpio");
+    
+    LOG_INFO("ScriptingModule: API GPIO esposte con successo");
 }
 
 void ScriptingModule::exposeDHTAPI()
@@ -385,6 +452,31 @@ bool ScriptingModule::executeScript(const String& script)
     return true;
 }
 
+// bool ScriptingModule::executeScriptTick()
+// {
+//     if (!initialized || jsContext == nullptr) {
+//         LOG_ERROR("ScriptingModule: Contesto JavaScript non inizializzato");
+//         return false;
+//     }
+    
+//     // Cerca la funzione loop() nello stack globale
+//     if (duk_get_global_string(jsContext, "loop") != 1) {
+//         LOG_DEBUG("ScriptingModule: Funzione loop() non trovata");
+//         duk_pop(jsContext); // Pulisci lo stack
+//         return false;
+//     }
+    
+//     // Chiama la funzione loop()
+//     if (duk_pcall(jsContext, 0) != 0) {
+//         handleJSError();
+//         return false;
+//     }
+    
+//     // Pulisci lo stack
+//     duk_pop(jsContext);
+    
+//     return true;
+// }
 
 void ScriptingModule::stopScript()
 {
