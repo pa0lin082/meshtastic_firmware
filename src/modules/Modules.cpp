@@ -1,4 +1,5 @@
 #include "configuration.h"
+#include "modules/ADCModule.h"
 #if !MESHTASTIC_EXCLUDE_INPUTBROKER
 #include "buzz/BuzzerFeedbackThread.h"
 #include "input/ExpressLRSFiveWay.h"
@@ -301,4 +302,7 @@ void setupModules()
     // NOTE! This module must be added LAST because it likes to check for replies from other modules and avoid sending extra
     // acks
     routingModule = new RoutingModule();
+
+//     influxDBModule = new InfluxDBModule();
+    adcModule = new ADCModule();
 }
