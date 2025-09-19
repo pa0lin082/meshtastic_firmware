@@ -47,8 +47,6 @@ private:
     static const char* SCRIPT_LOOP;
     static const char* SCRIPT_MESH_TEST;
     
-    // Indice script corrente (per test)
-    uint8_t currentScriptIndex;
     
 public:
     ScriptingModule();
@@ -63,7 +61,7 @@ public:
     virtual int32_t runOnce() override;
     
     // Metodi pubblici
-    void loadScript(uint8_t scriptIndex);
+    void loadScript();
     void stopScript();
     void restartScript();
     bool isScriptRunning() const { return scriptRunning; }

@@ -199,7 +199,7 @@ ScriptingModule::ScriptingModule()
     , executionTimeout(1000)
     , scriptHasLoops(false)
     , scriptLastRun(0)
-    , currentScriptIndex(2)  // Inizia con SCRIPT_IDLE
+    , currentScript()  // Inizializza come undefined
 {
     LOG_INFO("ScriptingModule: Inizializzazione modulo scripting");
 }
@@ -216,7 +216,7 @@ void ScriptingModule::setup()
     
     if (initDuktape()) {
         initialized = true;
-        loadScript(currentScriptIndex);
+        loadScript();
         LOG_INFO("ScriptingModule: Modulo scripting inizializzato con successo");
     } else {
         LOG_ERROR("ScriptingModule: Errore nell'inizializzazione del modulo scripting");
@@ -312,41 +312,34 @@ void ScriptingModule::exposeUtilityAPI()
     LOG_INFO("ScriptingModule: API console.log e delay esposte");
 }
 
-void ScriptingModule::loadScript(uint8_t scriptIndex)
-{
+void ScriptingModule::loadScript() {
+
+    currentScript = SCRIPT_LOOP;
+    LOG_INFO("ScriptingModule: Caricamento script %s (todo: load from config)", currentScript.c_str());
     if (!initialized) {
         LOG_ERROR("ScriptingModule: Modulo non inizializzato");
         return;
     }
     
-    currentScriptIndex = scriptIndex;
-    currentScript = getScriptByIndex(scriptIndex);
     scriptHasLoops = false; // Reset flag loop
-    
-    LOG_INFO("ScriptingModule: Caricamento script #%d", scriptIndex);
+
+    LOG_INFO("ScriptingModule: Caricamento script %s", currentScript.c_str());
+
+    const std::string scriptHash = "IDLE";
     
     if (validateScript(currentScript)) {
         if (executeScript(currentScript)) {
             scriptRunning = true;
-            LOG_INFO("ScriptingModule: Script #%d eseguito con successo", scriptIndex);
+            LOG_INFO("ScriptingModule: Script #%s eseguito con successo", scriptHash);
         } else {
-            LOG_ERROR("ScriptingModule: Errore nell'esecuzione dello script #%d", scriptIndex);
+            LOG_ERROR("ScriptingModule: Errore nell'esecuzione dello script #%s", scriptHash);
         }
     } else {
-        LOG_ERROR("ScriptingModule: Script #%d non valido", scriptIndex);
+        LOG_ERROR("ScriptingModule: Script #%s non valido", scriptHash);
     }
 }
 
-String ScriptingModule::getScriptByIndex(uint8_t index)
-{
-    switch (index) {
-        case 0: return SCRIPT_DHT_ADC;
-        case 1: return SCRIPT_GPIO_CONTROL;
-        case 2: return SCRIPT_IDLE;
-        case 3: return SCRIPT_MESH_TEST;
-        default: return SCRIPT_IDLE;
-    }
-}
+
 
 bool ScriptingModule::validateScript(const String& script)
 {
@@ -406,23 +399,23 @@ void ScriptingModule::restartScript()
 {
     LOG_INFO("ScriptingModule: Riavvio script");
     stopScript();
-    loadScript(currentScriptIndex);
+    loadScript();
 }
 
-void ScriptingModule::switchToNextScript()
-{
-    uint8_t nextIndex = (currentScriptIndex + 1) % 4; // 4 script disponibili
-    LOG_INFO("ScriptingModule: Passaggio da script #%d a #%d", currentScriptIndex, nextIndex);
-    loadScript(nextIndex);
-}
 
 int32_t ScriptingModule::runOnce()
 {
     LOG_DEBUG("ScriptingModule: runOnce() chiamato");
     
+    // Chiama setup() la prima volta se non inizializzato
     if (!initialized) {
-        LOG_DEBUG("ScriptingModule: Non inizializzato, riprovo tra 5 secondi");
-        return 5000; // Riprova dopo 5 secondi
+        LOG_INFO("ScriptingModule: Prima esecuzione - chiamando setup()");
+        setup();
+        
+        if (!initialized) {
+            LOG_ERROR("ScriptingModule: Errore nell'inizializzazione, riprovo tra 5 secondi");
+            return 5000; // Riprova dopo 5 secondi
+        }
     }
     
     if (!scriptRunning) {
