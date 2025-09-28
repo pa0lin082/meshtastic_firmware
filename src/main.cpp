@@ -530,6 +530,7 @@ void setup()
     Wire1.setSCL(I2C_SCL1);
     Wire1.begin();
 #elif defined(I2C_SDA1) && !defined(ARCH_RP2040)
+    LOG_INFO("I2C_SDA1: %d, I2C_SCL1: %d", I2C_SDA1, I2C_SCL1);
     Wire1.begin(I2C_SDA1, I2C_SCL1);
 #elif WIRE_INTERFACES_COUNT == 2
     Wire1.begin();
@@ -540,6 +541,7 @@ void setup()
     Wire.setSCL(I2C_SCL);
     Wire.begin();
 #elif defined(I2C_SDA) && !defined(ARCH_RP2040)
+    LOG_INFO("I2C_SDA: %d, I2C_SCL: %d", I2C_SDA, I2C_SCL);
     Wire.begin(I2C_SDA, I2C_SCL);
 #elif defined(ARCH_PORTDUINO)
     if (portduino_config.i2cdev != "") {

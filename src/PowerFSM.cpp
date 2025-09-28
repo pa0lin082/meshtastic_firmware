@@ -30,6 +30,22 @@
 FakeFsm powerFSM;
 void PowerFSM_setup(){};
 #else
+
+static uint32_t stateEntryTime = 0;
+static const char *lastStateName = "UNKNOWN";
+
+// Funzione helper per stampare le transizioni
+static void logStateTransition(const char *newStateName)
+{
+    uint32_t now = millis();
+    if (stateEntryTime > 0 && lastStateName != newStateName) {
+        uint32_t timeInState = now - stateEntryTime;
+        LOG_INFO("PowerTiming: %s -> %s (tempo in %s: %u ms)", lastStateName, newStateName, lastStateName, timeInState);
+    }
+    stateEntryTime = now;
+    lastStateName = newStateName;
+}
+
 /// Should we behave as if we have AC power now?
 static bool isPowered()
 {
@@ -58,6 +74,7 @@ static bool isPowered()
 static void sdsEnter()
 {
     LOG_DEBUG("State: SDS");
+    logStateTransition("SDS");
     // FIXME - make sure GPS and LORA radio are off first - because we want close to zero current draw
     doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, false);
 }
@@ -65,6 +82,7 @@ static void sdsEnter()
 static void lowBattSDSEnter()
 {
     LOG_DEBUG("State: Lower batt SDS");
+    logStateTransition("SDS (Low batt)");
     doDeepSleep(Default::getConfiguredOrDefaultMs(config.power.sds_secs), false, true);
 }
 extern Power *power;
@@ -72,6 +90,7 @@ extern Power *power;
 static void shutdownEnter()
 {
     LOG_DEBUG("State: SHUTDOWN");
+    logStateTransition("SHUTDOWN");
     shutdownAtMsec = millis();
 }
 
@@ -82,6 +101,7 @@ static uint32_t secsSlept;
 static void lsEnter()
 {
     LOG_INFO("lsEnter begin, ls_secs=%u", config.power.ls_secs);
+    logStateTransition("LS");
     if (screen)
         screen->setOn(false);
     secsSlept = 0; // How long have we been sleeping this time
@@ -161,6 +181,7 @@ static void lsExit()
 static void nbEnter()
 {
     LOG_DEBUG("State: NB");
+    logStateTransition("NB");
     if (screen)
         screen->setOn(false);
 #ifdef ARCH_ESP32
@@ -173,6 +194,7 @@ static void nbEnter()
 
 static void darkEnter()
 {
+    logStateTransition("DARK");
     setBluetoothEnable(true);
     if (screen)
         screen->setOn(false);
@@ -196,6 +218,7 @@ static void serialExit()
 static void powerEnter()
 {
     // LOG_DEBUG("State: POWER");
+    logStateTransition("POWER");
     if (!isPowered()) {
         // If we got here, we are in the wrong state - we should be in powered, let that state handle things
         LOG_INFO("Loss of power in Powered");
@@ -227,6 +250,7 @@ static void powerExit()
 static void onEnter()
 {
     LOG_DEBUG("State: ON");
+    logStateTransition("ON");
     if (screen)
         screen->setOn(true);
     setBluetoothEnable(true);
@@ -243,6 +267,7 @@ static void onIdle()
 static void bootEnter()
 {
     LOG_DEBUG("State: BOOT");
+    logStateTransition("BOOT");
 }
 
 State stateSHUTDOWN(shutdownEnter, NULL, NULL, "SHUTDOWN");

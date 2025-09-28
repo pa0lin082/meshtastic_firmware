@@ -1,5 +1,4 @@
 #include "configuration.h"
-#include "modules/ADCModule.h"
 #if !MESHTASTIC_EXCLUDE_INPUTBROKER
 #include "buzz/BuzzerFeedbackThread.h"
 #include "input/ExpressLRSFiveWay.h"
@@ -108,6 +107,9 @@
 #include "modules/DropzoneModule.h"
 #endif
 
+#if USE_CUSTOM_SENSOR_MODULE
+#include "modules/custom/CustomSensorModule.h"
+#endif
 /**
  * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
  */
@@ -303,6 +305,7 @@ void setupModules()
     // acks
     routingModule = new RoutingModule();
 
-//     influxDBModule = new InfluxDBModule();
-    adcModule = new ADCModule();
+#if USE_CUSTOM_SENSOR_MODULE
+    customSensorModule = new CustomSensorModule();
+#endif
 }
