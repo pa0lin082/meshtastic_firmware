@@ -134,6 +134,13 @@ extern void drawCommonHeader(OLEDDisplay *display, int16_t x, int16_t y, const c
 #include "Sensor/TSL2561Sensor.h"
 #endif
 
+#if __has_include(<BH1750_WE.h>)
+#include "Sensor/BH1750Sensor.h"
+BH1750Sensor bh1750Sensor;
+#else
+NullSensor bh1750Sensor;
+#endif
+
 #define FAILED_STATE_SENSOR_READ_MULTIPLIER 10
 #define DISPLAY_RECEIVEID_MEASUREMENTS_ON_SCREEN true
 
