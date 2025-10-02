@@ -7,6 +7,7 @@
 #include "RadioLibInterface.h"
 #include "Router.h"
 #include "configuration.h"
+#include "detect/ScanI2CTwoWire.h"
 #include "driver/adc.h"
 #include "esp32-hal-adc.h"
 #include "esp_adc_cal.h"
@@ -18,6 +19,7 @@
 #include "serialization/JSON.h"
 #include "sleep.h"
 #include <Arduino.h>
+#include <Wire.h>
 
 #include "modules/Telemetry/Sensor/nullSensor.h"
 #if __has_include(<Adafruit_BME280.h>)
@@ -34,10 +36,18 @@ extern BME680Sensor bme680Sensor;
 NullSensor bme680Sensor;
 #endif
 
+#if __has_include(<BH1750_WE.h>)
+#include "modules/Telemetry/Sensor/BH1750Sensor.h"
+extern BH1750Sensor bh1750Sensor;
+#else
+NullSensor bh1750Sensor;
+#endif
+
 #define MAGIC_USB_BATTERY_LEVEL 101
 
 #include "Adafruit_BME680.h"
 #include <Adafruit_Sensor.h>
+#include <BH1750_WE.h>
 #include <DS3231.h>
 #include <Wire.h>
 
@@ -64,6 +74,9 @@ const int SAMPLES = 100;
 
 Adafruit_BME680 bme(&Wire1); // I2C
 
+#define BH1750_ADDRESS 0x23
+#define BH1750_ADDRESS_ALT 0x5C
+
 CustomSensorModule *customSensorModule;
 
 CustomSensorModule::CustomSensorModule()
@@ -75,7 +88,7 @@ CustomSensorModule::CustomSensorModule()
     dht = new DHT(DHT_Pin, DHTTYPE);
     dht->begin();
 
-    if (!bme.begin()) {
+    if (bme.begin()) {
         LOG_INFO("Could not find a valid BME680 sensor, check wiring!");
 
         bool century = false;
@@ -144,6 +157,13 @@ CustomSensorModule::CustomSensorModule()
 
     // Inizializza BME280
     // initBME280();
+    if (bh1750Sensor.hasSensor()) {
+        LOG_INFO("CustomSensorModule: BH1750 sensor found");
+        uint32_t result = bh1750Sensor.runOnce();
+        LOG_INFO("CustomSensorModule: BH1750 sensor result: %d", result);
+    } else {
+        LOG_INFO("CustomSensorModule: BH1750 sensor not found");
+    }
 
     if (bme280Sensor.hasSensor()) {
         LOG_INFO("CustomSensorModule: BME280 sensor found");
@@ -341,6 +361,10 @@ void CustomSensorModule::sendEnvironmentTelemetry()
     m.time = getTime();
     m.variant.environment_metrics = meshtastic_EnvironmentMetrics_init_zero;
 
+    if (bh1750Sensor.hasSensor()) {
+        bh1750Sensor.getMetrics(&m);
+    }
+
     if (bme280Sensor.hasSensor()) {
         bme280Sensor.getMetrics(&m);
     } else if (bme680Sensor.hasSensor()) {
@@ -350,10 +374,10 @@ void CustomSensorModule::sendEnvironmentTelemetry()
         return;
     }
     LOG_INFO("Send: barometric_pressure=%f, current=%f, gas_resistance=%f, "
-             "relative_humidity=%f, temperature=%f",
+             "relative_humidity=%f, temperature=%f , lux=%f",
              m.variant.environment_metrics.barometric_pressure, m.variant.environment_metrics.current,
              m.variant.environment_metrics.gas_resistance, m.variant.environment_metrics.relative_humidity,
-             m.variant.environment_metrics.temperature);
+             m.variant.environment_metrics.temperature, m.variant.environment_metrics.lux);
 
     meshtastic_MeshPacket *p = router->allocForSending();
     p->to = NODENUM_BROADCAST;
@@ -456,7 +480,7 @@ int32_t CustomSensorModule::runOnce()
         firstExecutionTime = 0; // Reset per il prossimo ciclo
     }
 
-    if (lastSentToMesh == 0 || (millis() - lastSentToMesh) >= 5000) {
+    if (lastSentToMesh == 0 || (millis() - lastSentToMesh) >= 15000) {
         lastSentToMesh = millis();
         sendEnvironmentTelemetry();
         sendDeviceTelemetry();

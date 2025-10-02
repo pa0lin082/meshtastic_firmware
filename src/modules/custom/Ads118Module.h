@@ -47,9 +47,6 @@ class Ads118Module : private concurrency::OSThread
     /** Inizializza l'ADS1118 */
     bool initADS1118();
 
-    /** Trasferimento SPI software - invia 16 bit e ricevi 16 bit */
-    uint16_t transfer16(uint16_t data);
-
     /** Legge un canale specifico */
     float readChannel(int channel);
 
@@ -73,8 +70,6 @@ class Ads118Module : private concurrency::OSThread
 
     /** Configura il data rate dell'ADS1118 */
     void setDataRate(int rate);
-
-    void blinkPin(int pin, const int count = 2, const int delayTime = 1000);
 };
 
 extern Ads118Module *ads118Module;

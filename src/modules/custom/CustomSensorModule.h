@@ -22,6 +22,9 @@ class CustomSensorModule : private concurrency::OSThread
     /** Inizializza il modulo */
     void setup();
 
+    /** Reset del sensore BH1750 */
+    void resetBH1750();
+
   protected:
     /** Metodo principale del thread che viene chiamato periodicamente */
     virtual int32_t runOnce() override;

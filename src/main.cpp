@@ -532,6 +532,7 @@ void setup()
 #elif defined(I2C_SDA1) && !defined(ARCH_RP2040)
     LOG_INFO("I2C_SDA1: %d, I2C_SCL1: %d", I2C_SDA1, I2C_SCL1);
     Wire1.begin(I2C_SDA1, I2C_SCL1);
+    Wire1.setClock(100000);
 #elif WIRE_INTERFACES_COUNT == 2
     Wire1.begin();
 #endif

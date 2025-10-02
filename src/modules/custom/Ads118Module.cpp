@@ -1,39 +1,15 @@
 #include "Ads118Module.h"
-// #include "ADS1118SW.h"
 #include "DebugConfiguration.h"
 #include "MeshService.h"
 #include "Router.h"
-#include "sleep.h"
-#include <ADS1118.h>
 #include <Arduino.h>
 #include <SPI.h>
 
-// Pin SPI per ADS1118 (Software SPI)
-#define ADS1118_SCLK 35        // Clock
-#define ADS1118_MOSI 36        // Master Out Slave In
-#define ADS1118_MISO 37        // Master In Slave Out
-#define ADS1118_CS 38          // Chip Select
-#define ADS1118_MOSI SUBSPID   // Master Out Slave In
-#define ADS1118_MISO SUBSPIQ   // Master In Slave Out
-#define ADS1118_SCLK SUBSPICLK // Clock
-#define ADS1118_CS SUBSPICS0   // Chip Select
-
-// Costanti per la configurazione ADS1118
-#define ADS1118_GAIN_6_144V 0
-#define ADS1118_GAIN_4_096V 1
-#define ADS1118_GAIN_2_048V 2
-#define ADS1118_GAIN_1_024V 3
-#define ADS1118_GAIN_0_512V 4
-#define ADS1118_GAIN_0_256V 5
-
-#define ADS1118_DR_8SPS 0
-#define ADS1118_DR_16SPS 1
-#define ADS1118_DR_32SPS 2
-#define ADS1118_DR_64SPS 3
-#define ADS1118_DR_128SPS 4
-#define ADS1118_DR_250SPS 5
-#define ADS1118_DR_475SPS 6
-#define ADS1118_DR_860SPS 7
+// Pin SPI per ADS1118 (usando i pin JTAG)
+#define ADS1118_SCLK 36 // SUBSPICLK
+#define ADS1118_MOSI 35 // SUBSPID
+#define ADS1118_MISO 37 // SUBSPIQ
+#define ADS1118_CS 34   // SUBSPICS0
 
 // Dichiarazioni delle variabili globali necessarie
 extern Router *router;
@@ -43,15 +19,15 @@ Ads118Module *ads118Module;
 
 Ads118Module::Ads118Module()
     : concurrency::OSThread("Ads118Module"), initialized(false), lastSentToMesh(0), _mosi(ADS1118_MOSI), _miso(ADS1118_MISO),
-      _sclk(ADS1118_SCLK), _cs(ADS1118_CS), _gain(ADS1118_GAIN_4_096V), _dataRate(ADS1118_DR_128SPS)
+      _sclk(ADS1118_SCLK), _cs(ADS1118_CS), _gain(1), _dataRate(4)
 {
-    LOG_INFO("Ads118Module: Inizializzazione modulo ADS1118");
+    LOG_INFO("Ads118Module: Inizializzazione modulo ADS1118 con LibDriver");
 
     if (initSPI() && initADS1118()) {
-        LOG_INFO("Ads118Module: ADS1118 inizializzato con successo");
+        LOG_INFO("Ads118Module: ADS1118 inizializzato con successo usando LibDriver");
         initialized = true;
     } else {
-        LOG_ERROR("Ads118Module: Errore nell'inizializzazione dell'ADS1118");
+        LOG_ERROR("Ads118Module: Errore nell'inizializzazione dell'ADS1118 con LibDriver");
         initialized = false;
     }
 }
@@ -88,6 +64,9 @@ bool Ads118Module::initSPI()
         LOG_ERROR("Ads118Module: Test SPI fallito");
         return false;
     }
+
+    LOG_INFO("Ads118Module: SPI LibDriver inizializzato con successo");
+    return true;
 }
 
 bool Ads118Module::initADS1118()
@@ -136,42 +115,6 @@ bool Ads118Module::testSPICommunication()
 {
     LOG_INFO("Ads118Module: Esecuzione test SPI sui pin JTAG...");
 
-    // Test 1: Verifica configurazione pin
-    LOG_INFO("Ads118Module: Test 1 - Verifica configurazione pin");
-    LOG_INFO("Ads118Module: MOSI=%d, MISO=%d, SCLK=%d, CS=%d", _mosi, _miso, _sclk, _cs);
-
-    // Test 2: Test di clock SPI
-    LOG_INFO("Ads118Module: Test 2 - Test clock SPI");
-    for (int i = 0; i < 5; i++) {
-        digitalWrite(_sclk, HIGH);
-        delayMicroseconds(10);
-        digitalWrite(_sclk, LOW);
-        delayMicroseconds(10);
-    }
-
-    // Test 3: Test chip select
-    LOG_INFO("Ads118Module: Test 3 - Test chip select");
-    digitalWrite(_cs, LOW);
-    delayMicroseconds(10);
-    digitalWrite(_cs, HIGH);
-    delayMicroseconds(10);
-
-    // Test 4: Test con oscilloscopio/logic analyzer
-    LOG_INFO("Ads118Module: Test 4 - Pattern di test per oscilloscopio");
-    for (int pattern = 0; pattern < 3; pattern++) {
-        digitalWrite(_cs, LOW);
-        for (int bit = 0; bit < 8; bit++) {
-            digitalWrite(_mosi, (pattern % 2) ? HIGH : LOW);
-            digitalWrite(_sclk, HIGH);
-            delayMicroseconds(50);
-            digitalWrite(_sclk, LOW);
-            delayMicroseconds(50);
-        }
-        digitalWrite(_cs, HIGH);
-        delay(100);
-    }
-
-    LOG_INFO("Ads118Module: Test SPI completato - Controlla con oscilloscopio/logic analyzer");
     return true;
 }
 
@@ -338,25 +281,5 @@ int32_t Ads118Module::runOnce()
         LOG_INFO("Ads118Module: Telemetria ADS1118 inviata");
     }
 
-    // blinkPin(ADS1118_SCLK, 4, 1000);
-    // blinkPin(ADS1118_MOSI, 4, 1000);
-    // blinkPin(ADS1118_MISO, 4, 1000);
-    // blinkPin(ADS1118_CS, 4, 1000);
-
-    return 5000; // Controlla ogni secondo
-}
-
-void Ads118Module::blinkPin(int pin, int count, int delayTime)
-{
-    pinMode(pin, OUTPUT);
-
-    for (int i = 0; i < count; i++) {
-        digitalWrite(pin, LOW);
-        LOG_INFO("Ads118Module: Pin %d settato a LOW", pin);
-        delay(delayTime);
-        digitalWrite(pin, HIGH);
-        delay(1000);
-        LOG_INFO("Ads118Module: Pin %d settato a HIGH", pin);
-    }
-    digitalWrite(pin, LOW);
+    return 5000; // Controlla ogni 5 secondi
 }
