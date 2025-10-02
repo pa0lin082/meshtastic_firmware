@@ -80,6 +80,13 @@ ADS1118::ADS1118(uint8_t io_pin_cs, SPIClass *spi)
 {
     cs = io_pin_cs;
     pSpi = spi;
+
+    DRIVER_ADS1118_LINK_INIT(&gs_handle, ads1118_handle_t);
+    DRIVER_ADS1118_LINK_SPI_INIT(&gs_handle, spi_init);
+    DRIVER_ADS1118_LINK_SPI_DEINIT(&gs_handle, spi_deinit);
+    DRIVER_ADS1118_LINK_SPI_TRANSMIT(&gs_handle, spi_transmit);
+    DRIVER_ADS1118_LINK_DELAY_MS(&gs_handle, delay_ms);
+    DRIVER_ADS1118_LINK_DEBUG_PRINT(&gs_handle, debug_print);
 }
 #endif
 
@@ -126,7 +133,7 @@ void ADS1118::begin(uint8_t sclk, uint8_t miso, uint8_t mosi)
  * @param pin_drdy io pin connected to ADS1118 DOUT/DRDY. value Reference of ADC value to be fetched
  * @return True if ADC data is ready
  */
-bool ADS1118::getADCValueNoWait(uint8_t pin_drdy, uint16_t &value)
+bool ADS1118::getADCValueNoWait(ads1118_channel_t pin_drdy, uint16_t &value)
 {
     byte dataMSB, dataLSB;
     pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
@@ -150,7 +157,7 @@ bool ADS1118::getADCValueNoWait(uint8_t pin_drdy, uint16_t &value)
  * Getting the millivolts from the settled inputs
  * @return A double (32bits) containing the ADC value in millivolts
  */
-bool ADS1118::getMilliVoltsNoWait(uint8_t pin_drdy, double &volts)
+bool ADS1118::getMilliVoltsNoWait(ads1118_channel_t pin_drdy, double &volts)
 {
     float fsr = pgaFSR[configRegister.bits.pga];
     uint16_t value;
@@ -174,7 +181,7 @@ bool ADS1118::getMilliVoltsNoWait(uint8_t pin_drdy, double &volts)
  * AIN_1, AIN_2, AIN_3
  * @return A word containing the ADC value
  */
-uint16_t ADS1118::getADCValue(uint8_t inputs)
+uint16_t ADS1118::getADCValue(ads1118_channel_t inputs)
 {
     uint16_t value;
     byte dataMSB, dataLSB, configMSB, configLSB, count = 0;
@@ -219,7 +226,7 @@ uint16_t ADS1118::getADCValue(uint8_t inputs)
  * AIN_0, AIN_1, AIN_2, AIN_3
  * @return A double (32bits) containing the ADC value in millivolts
  */
-double ADS1118::getMilliVolts(uint8_t inputs)
+double ADS1118::getMilliVolts(ads1118_channel_t inputs)
 {
     float volts;
     float fsr = pgaFSR[configRegister.bits.pga];
@@ -304,7 +311,7 @@ double ADS1118::getTemperature()
  * @param samplingRate It's the sampling rate: RATE_8SPS, RATE_16SPS, RATE_32SPS, RATE_64SPS, RATE_128SPS, RATE_250SPS,
  * RATE_475SPS, RATE_860SPS
  */
-void ADS1118::setSamplingRate(uint8_t samplingRate)
+void ADS1118::setSamplingRate(ads1118_rate_t samplingRate)
 {
     configRegister.bits.rate = samplingRate;
 }
@@ -314,7 +321,7 @@ void ADS1118::setSamplingRate(uint8_t samplingRate)
  * @param fsr The full scale range: FSR_6144 (±6.144V)*, FSR_4096(±4.096V)*, FSR_2048(±2.048V), FSR_1024(±1.024V),
  * FSR_0512(±0.512V), FSR_0256(±0.256V). (*) No more than VDD + 0.3 V must be applied to this device.
  */
-void ADS1118::setFullScaleRange(uint8_t fsr)
+void ADS1118::setFullScaleRange(ads1118_range_t fsr)
 {
     configRegister.bits.pga = fsr;
 }
@@ -324,7 +331,7 @@ void ADS1118::setFullScaleRange(uint8_t fsr)
  * @param input The input selected: Diferential inputs: DIFF_0_1, DIFF_0_3, DIFF_1_3, DIFF_2_3. Single ended input: AIN_0, AIN_1,
  * AIN_2, AIN_3
  */
-void ADS1118::setInputSelected(uint8_t input)
+void ADS1118::setInputSelected(ads1118_channel_t input)
 {
     configRegister.bits.mux = input;
 }
@@ -367,147 +374,147 @@ void ADS1118::enablePullup()
  */
 void ADS1118::decodeConfigRegister(union Config configRegister)
 {
-    String mensaje = String();
+    String message = String();
     switch (configRegister.bits.singleStart) {
     case 0:
-        mensaje = "NOINI";
+        message = "NOINI";
         break;
     case 1:
-        mensaje = "START";
+        message = "START";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.mux) {
     case 0:
-        mensaje += "A0-A1";
+        message += "A0-A1";
         break;
     case 1:
-        mensaje += "A0-A3";
+        message += "A0-A3";
         break;
     case 2:
-        mensaje += "A1-A3";
+        message += "A1-A3";
         break;
     case 3:
-        mensaje += "A2-A3";
+        message += "A2-A3";
         break;
     case 4:
-        mensaje += "A0-GD";
+        message += "A0-GD";
         break;
     case 5:
-        mensaje += "A1-GD";
+        message += "A1-GD";
         break;
     case 6:
-        mensaje += "A2-GD";
+        message += "A2-GD";
         break;
     case 7:
-        mensaje += "A3-GD";
+        message += "A3-GD";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.pga) {
     case 0:
-        mensaje += "6.144";
+        message += "6.144";
         break;
     case 1:
-        mensaje += "4.096";
+        message += "4.096";
         break;
     case 2:
-        mensaje += "2.048";
+        message += "2.048";
         break;
     case 3:
-        mensaje += "1.024";
+        message += "1.024";
         break;
     case 4:
-        mensaje += "0.512";
+        message += "0.512";
         break;
     case 5:
-        mensaje += "0.256";
+        message += "0.256";
         break;
     case 6:
-        mensaje += "0.256";
+        message += "0.256";
         break;
     case 7:
-        mensaje += "0.256";
+        message += "0.256";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.operatingMode) {
     case 0:
-        mensaje += "CONT.";
+        message += "CONT.";
         break;
     case 1:
-        mensaje += "SSHOT";
+        message += "SSHOT";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.rate) {
     case 0:
-        mensaje += "8 SPS";
+        message += "8 SPS";
         break;
     case 1:
-        mensaje += "16SPS";
+        message += "16SPS";
         break;
     case 2:
-        mensaje += "32SPS";
+        message += "32SPS";
         break;
     case 3:
-        mensaje += "64SPS";
+        message += "64SPS";
         break;
     case 4:
-        mensaje += "128SP";
+        message += "128SP";
         break;
     case 5:
-        mensaje += "250SP";
+        message += "250SP";
         break;
     case 6:
-        mensaje += "475SP";
+        message += "475SP";
         break;
     case 7:
-        mensaje += "860SP";
+        message += "860SP";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.sensorMode) {
     case 0:
-        mensaje += "ADC_M";
+        message += "ADC_M";
         break;
     case 1:
-        mensaje += "TMP_M";
+        message += "TMP_M";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.pullUp) {
     case 0:
-        mensaje += "DISAB";
+        message += "DISAB";
         break;
     case 1:
-        mensaje += "ENABL";
+        message += "ENABL";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.noOperation) {
     case 0:
-        mensaje += "INVAL";
+        message += "INVAL";
         break;
     case 1:
-        mensaje += "VALID";
+        message += "VALID";
         break;
     case 2:
-        mensaje += "INVAL";
+        message += "INVAL";
         break;
     case 3:
-        mensaje += "INVAL";
+        message += "INVAL";
         break;
     }
-    mensaje += " ";
+    message += " ";
     switch (configRegister.bits.reserved) {
     case 0:
-        mensaje += "RSRV0";
+        message += "RSRV0";
         break;
     case 1:
-        mensaje += "RSRV1";
+        message += "RSRV1";
         break;
     }
     Serial.println("\nSTART MXSEL PGASL MODES RATES ADTMP PLLUP NOOPE RESER");
-    Serial.println(mensaje);
+    Serial.println(message);
 }

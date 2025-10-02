@@ -83,8 +83,8 @@ bool Ads118Module::initADS1118()
 
     LOG_INFO("Ads118Module: ADS1118.begin() completato con successo");
 
-    const uint8_t samplingRate = ads1118->RATE_8SPS;
-    const uint8_t fullScaleRange = ads1118->FSR_6144; // Cambiato a 4.096V per test
+    const ads1118_rate_t samplingRate = ads1118->RATE_8SPS;
+    const ads1118_range_t fullScaleRange = ads1118->FSR_6144; // Cambiato a 4.096V per test
 
     /* Changing the sampling rate.
 Available values: RATE_8SPS, RATE_16SPS, RATE_32SPS, RATE_64SPS, RATE_128SPS, RATE_250SPS, RATE_475SPS, RATE_860SPS */
@@ -137,7 +137,7 @@ bool Ads118Module::testADS1118Connection()
 
     // Test 2: Verifica letture su tutti i canali
     LOG_INFO("Ads118Module: Test 2 - Lettura tutti i canali");
-    const uint8_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3};
+    const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3};
     bool anyChannelActive = false;
 
     for (int i = 0; i < 4; i++) {
@@ -251,7 +251,8 @@ int32_t Ads118Module::runOnce()
     }
 
     if (ads1118 != NULL) {
-        const uint8_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
+        const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
+                                            ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
         const double temperature = ads1118->getTemperature();
         LOG_INFO("Ads118Module: Temperature: %f", temperature);
         for (int i = 0; i < 4; i++) {
@@ -259,7 +260,7 @@ int32_t Ads118Module::runOnce()
             ads1118->setInputSelected(inputs[i]);
             const double milliVolts = ads1118->getMilliVolts();
             delay(100);
-            const double milliVolts2 = ads1118->getMilliVolts(4 + i);
+            const double milliVolts2 = ads1118->getMilliVolts(inputs[i]);
             LOG_INFO("Ads118Module: Input AIN_%d, MilliVolts: %f MilliVolts2: %f", i, milliVolts, milliVolts2);
 
             // double milliVoltsNoWait;

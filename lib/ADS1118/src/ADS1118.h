@@ -1,8 +1,8 @@
 #ifndef ADS1118_h
 #define ADS1118_h
 
-#include "<driver_ads1118.h>"
 #include "Arduino.h"
+#include "driver_ads1118.h"
 #include <SPI.h>
 #include <stdint.h>
 /**
@@ -14,15 +14,15 @@
 union Config {
     /// Structure of the config register of the ADS1118. (See datasheet [1])
     struct {
-        uint8_t reserved : 1;      ///< "Reserved" bit
-        uint8_t noOperation : 2;   ///< "NOP" bits
-        uint8_t pullUp : 1;        ///< "PULL_UP_EN" bit
-        uint8_t sensorMode : 1;    ///< "TS_MODE" bit
-        uint8_t rate : 3;          ///< "DR" bits
-        uint8_t operatingMode : 1; ///< "MODE" bit
-        uint8_t pga : 3;           ///< "PGA" bits
-        uint8_t mux : 3;           ///< "MUX" bits
-        uint8_t singleStart : 1;   ///< "SS" bit
+        uint8_t reserved : 1;             ///< "Reserved" bit
+        uint8_t noOperation : 2;          ///< "NOP" bits
+        ads1118_bool_t pullUp : 1;        ///< "PULL_UP_EN" bit
+        ads1118_mode_t sensorMode : 1;    ///< "TS_MODE" bit
+        ads1118_rate_t rate : 3;          ///< "DR" bits
+        ads1118_bool_t operatingMode : 1; ///< "MODE" bit
+        ads1118_range_t pga : 3;          ///< "PGA" bits
+        ads1118_channel_t mux : 3;        ///< "MUX" bits
+        uint8_t singleStart : 1;          ///< "SS" bit
     } bits;
     uint16_t word; ///< Representation in word (16-bits) format
     struct {
@@ -52,15 +52,15 @@ class ADS1118
     double getMilliVolts(ads1118_channel_t inputs);                      ///< Getting the millivolts from the specified inputs
     double getMilliVolts();                                              ///< Getting the millivolts from the settled inputs
     void decodeConfigRegister(
-        union Config configRegister);           ///< Decoding a configRegister structure and then print it out to the Serial port
-    void setSamplingRate(uint8_t samplingRate); ///< Setting the sampling rate specified in the config register
-    void setFullScaleRange(uint8_t fsr);        ///< Setting the full scale range in the config register
-    void setContinuousMode();                   ///< Setting to continuous adquisition mode
-    void setSingleShotMode();                   ///< Setting to single shot adquisition and power down mode
-    void disablePullup();                       ///< Disabling the internal pull-up resistor of the DOUT pin
-    void enablePullup();                        ///< Enabling the internal pull-up resistor of the DOUT pin
-    void setInputSelected(uint8_t input);       ///< Setting the inputs to be adquired in the config register.
-                                                // Input multiplexer configuration selection for bits "MUX"
+        union Config configRegister); ///< Decoding a configRegister structure and then print it out to the Serial port
+    void setSamplingRate(ads1118_rate_t samplingRate); ///< Setting the sampling rate specified in the config register
+    void setFullScaleRange(ads1118_range_t fsr);       ///< Setting the full scale range in the config register
+    void setContinuousMode();                          ///< Setting to continuous adquisition mode
+    void setSingleShotMode();                          ///< Setting to single shot adquisition and power down mode
+    void disablePullup();                              ///< Disabling the internal pull-up resistor of the DOUT pin
+    void enablePullup();                               ///< Enabling the internal pull-up resistor of the DOUT pin
+    void setInputSelected(ads1118_channel_t input);    ///< Setting the inputs to be adquired in the config register.
+                                                       // Input multiplexer configuration selection for bits "MUX"
     // Differential inputs
     const ads1118_channel_t DIFF_0_1 = ADS1118_CHANNEL_AIN0_AIN1; ///< Differential input: Vin=A0-A1
     const ads1118_channel_t DIFF_0_3 = ADS1118_CHANNEL_AIN0_AIN3; ///< Differential input: Vin=A0-A3
@@ -84,12 +84,12 @@ class ADS1118
     const ads1118_mode_t TEMP_MODE = ADS1118_MODE_TEMPERATURE; ///< Internal temperature sensor reading mode
 
     // Used by "MODE" bit
-    const uint8_t CONTINUOUS = 0;  ///< Continuous conversion mode
-    const uint8_t SINGLE_SHOT = 1; ///< Single-shot conversion and power down mode
+    const ads1118_bool_t CONTINUOUS = ADS1118_BOOL_FALSE; ///< Continuous conversion mode
+    const ads1118_bool_t SINGLE_SHOT = ADS1118_BOOL_TRUE; ///< Single-shot conversion and power down mode
 
     // Used by "PULL_UP_EN" bit
-    const uint8_t DOUT_PULLUP = 1;    ///< Internal pull-up resistor enabled for DOUT ***DEFAULT
-    const uint8_t DOUT_NO_PULLUP = 0; ///< Internal pull-up resistor disabled
+    const ads1118_bool_t DOUT_PULLUP = ADS1118_BOOL_TRUE;     ///< Internal pull-up resistor enabled for DOUT ***DEFAULT
+    const ads1118_bool_t DOUT_NO_PULLUP = ADS1118_BOOL_FALSE; ///< Internal pull-up resistor disabled
 
     // Used by "NOP" bits
     const uint8_t VALID_CFG = 0b01;    ///< Data will be written to Config register
@@ -122,45 +122,17 @@ class ADS1118
 #if defined(ESP32)
     SPIClass *pSpi;
 #endif
+    ads1118_handle_t gs_handle;
     uint8_t lastSensorMode = 3; ///< Last sensor mode selected (ADC_MODE or TEMP_MODE or none)
     uint8_t cs;                 ///< Chip select pin (choose one)
     const float pgaFSR[8] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256, 0.256, 0.256};
     const uint8_t CONV_TIME[8] = {125, 63, 32, 16, 8, 4, 3, 2}; ///< Array containing the conversions time in ms
 
-    /*
-                                                            Table 1. Noise in μVRMS (μVPP) at VDD = 3.3 V   [1]
-                                                                    DATA RATE FSR (Full-Scale Range)
-      (SPS) ±6.144 V 		±4.096 V 	 ±2.048 V 		±1.024 V 		±0.512 V 		±0.256 V
-            8 	187.5 (187.5) 	125 (125) 	 62.5 (62.5) 	31.25 (31.25) 	15.62 (15.62) 	7.81 (7.81)
-            16 	187.5 (187.5) 	125 (125) 	 62.5 (62.5) 	31.25 (31.25) 	15.62 (15.62) 	7.81 (7.81)
-            32 	187.5 (187.5) 	125 (125) 	 62.5 (62.5) 	31.25 (31.25) 	15.62 (15.62) 	7.81 (7.81)
-            64 	187.5 (187.5) 	125 (125) 	 62.5 (62.5) 	31.25 (31.25) 	15.62 (15.62) 	7.81 (7.81)
-            128 187.5 (187.5) 	125 (125) 	 62.5 (62.5) 	31.25 (31.25) 	15.62 (15.62) 	7.81 (12.35)
-            250 187.5 (252.09) 	125 (148.28) 62.5 (84.03) 	31.25 (39.54) 	15.62 (16.06) 	7.81 (18.53)
-            475 187.5 (266.92) 	125 (227.38) 62.5 (79.08) 	31.25 (56.84) 	15.62 (32.13) 	7.81 (25.95)
-            860 187.5 (430.06) 	125 (266.93) 62.5 (118.63) 	31.25 (64.26) 	15.62 (40.78) 	7.81 (35.83)
-
-
-                            Table 2. ENOB from RMS Noise (Noise-Free Bits from Peak-to-Peak Noise) at VDD = 3.3 V
-                                                                    DATA RATE FSR (Full-Scale Range)
-      (SPS) 	±6.144 V 	±4.096 V 	 ±2.048 V 		±1.024 V 		±0.512 V 		±0.256 V
-            8 		16 (16) 	16 (16) 	 16 (16) 		16 (16) 		16 (16) 		16
-      (16) 16 		16 (16) 	16 (16) 	 16 (16) 		16 (16) 		16 (16) 		16
-      (16) 32 		16 (16) 	16 (16) 	 16 (16) 		16 (16) 		16 (16) 		16
-      (16) 64 		16 (16) 	16 (16) 	 16 (16) 		16 (16) 		16 (16) 		16
-      (16) 128 	16 (16) 	16 (16) 	 16 (16) 		16 (16) 		16 (16) 		16 (15.33)
-            250 	16 (15.57) 	16 (15.75) 	 16 (15.57) 	16 (15.66) 		16 (15.96) 		16 (14.75)
-            475 	16 (15.49) 	16 (15.13) 	 16 (15.66)  	16 (15.13) 		16 (14.95) 		16 (14.26)
-            860 	16 (14.8) 	16 (14.9) 	 16 (15.07) 	16 (14.95) 		16 (14.61) 		16 (13.8)
-
-
-            [1] Texas Instruments, "ADS1118 Ultrasmall, Low-Power, SPI™-Compatible, 16-Bit Analog-to-Digital
-            Converter with Internal Reference and Temperature Sensor", ADS1118 datasheet, SBAS457E [OCTOBER 2010–REVISED OCTOBER
-      2015].
-
-            Note: This information is taken from http://www.ti.com
-                  Copyright © 2010–2015, Texas Instruments Incorporated
-    */
+    uint8_t spi_init(void);
+    uint8_t spi_deinit(void);
+    uint8_t spi_transmit(uint8_t *tx, uint8_t *rx, uint16_t len);
+    void delay_ms(uint32_t ms);
+    void debug_print(const char *const fmt, ...);
 };
 
 #endif
