@@ -148,7 +148,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define SSD1306_ADDRESS 0x3D
 #define USE_SH1106
 #else
-#define SSD1306_ADDRESS 0x3C
+#define SSD1306_OR_DS3231_ADDRESS 0x3C
+// #define DS3231_ADDRESS 0x3C
 #endif
 #define ST7567_ADDRESS 0x3F
 

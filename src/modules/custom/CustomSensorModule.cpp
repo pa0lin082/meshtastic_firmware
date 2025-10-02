@@ -26,7 +26,22 @@ extern BME280Sensor bme280Sensor;
 #else
 NullSensor bme280Sensor;
 #endif
+
+#if __has_include(<bsec2.h>)
+#include "modules/Telemetry/Sensor/BME680Sensor.h"
+extern BME680Sensor bme680Sensor;
+#else
+NullSensor bme680Sensor;
+#endif
+
 #define MAGIC_USB_BATTERY_LEVEL 101
+
+#include "Adafruit_BME680.h"
+#include <Adafruit_Sensor.h>
+#include <DS3231.h>
+#include <Wire.h>
+
+DS3231 myRTC(Wire1);
 
 // BME280 sarà gestito come membro della classe
 
@@ -43,20 +58,89 @@ extern MeshService *service;
 #define DHT_Pin 5
 #define DHTTYPE DHT11
 
-const static int SLEEP_TIME = 10 * 60 * 1000;     // 5 minuti in millisecondi
-const static int MIN_ACTIVE_TIME = 0 * 60 * 1000; // 0.25 minuti in millisecondi
+const static int SLEEP_TIME = 10 * 60 * 1000;      // 5 minuti in millisecondi
+const static int MIN_ACTIVE_TIME = 10 * 60 * 1000; // 0.25 minuti in millisecondi
 const int SAMPLES = 100;
+
+Adafruit_BME680 bme(&Wire1); // I2C
 
 CustomSensorModule *customSensorModule;
 
 CustomSensorModule::CustomSensorModule()
-    : concurrency::OSThread("CustomSensorModule"), initialized(false), adcPin(ADC_Pin), dht(nullptr)
+    : concurrency::OSThread("CustomSensorModule"), initialized(false), dht(nullptr), adcPin(ADC_Pin)
 {
     LOG_INFO("CustomSensorModule: Inizializzazione modulo ADC per pin %d\n", adcPin);
 
     // Inizializza il DHT
     dht = new DHT(DHT_Pin, DHTTYPE);
     dht->begin();
+
+    if (!bme.begin()) {
+        LOG_INFO("Could not find a valid BME680 sensor, check wiring!");
+
+        bool century = false;
+        bool h12Flag;
+        bool pmFlag;
+        Serial.print("2");
+        if (century) { // Won't need this for 89 years.
+            Serial.print("1");
+        } else {
+            Serial.print("0");
+        }
+        Serial.print(myRTC.getYear(), DEC);
+        Serial.print(' ');
+
+        // then the month
+        Serial.print(myRTC.getMonth(century), DEC);
+        Serial.print(" ");
+
+        // then the date
+        Serial.print(myRTC.getDate(), DEC);
+        Serial.print(" ");
+
+        // and the day of the week
+        Serial.print(myRTC.getDoW(), DEC);
+        Serial.print(" ");
+
+        // Finally the hour, minute, and second
+        Serial.print(myRTC.getHour(h12Flag, pmFlag), DEC);
+        Serial.print(" ");
+        Serial.print(myRTC.getMinute(), DEC);
+        Serial.print(" ");
+        Serial.print(myRTC.getSecond(), DEC);
+        // Add AM/PM indicator
+        if (h12Flag) {
+            if (pmFlag) {
+                Serial.print(" PM ");
+            } else {
+                Serial.print(" AM ");
+            }
+        } else {
+            Serial.print(" 24h ");
+        }
+
+        // Display the temperature
+        Serial.print("T=");
+        Serial.print(myRTC.getTemperature(), 2);
+
+        // Tell whether the time is (likely to be) valid
+        if (myRTC.oscillatorCheck()) {
+            Serial.print(" O+");
+        } else {
+            Serial.print(" O-");
+        }
+
+        // Indicate whether an alarm went off
+        if (myRTC.checkIfAlarm(1)) {
+            Serial.print(" A1!");
+        }
+
+        if (myRTC.checkIfAlarm(2)) {
+            Serial.print(" A2!");
+        }
+        while (1)
+            ;
+    }
 
     // Inizializza BME280
     // initBME280();
@@ -252,32 +336,37 @@ void CustomSensorModule::sendAdcTelemetry()
 void CustomSensorModule::sendEnvironmentTelemetry()
 {
 
+    meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
+    m.which_variant = meshtastic_Telemetry_environment_metrics_tag;
+    m.time = getTime();
+    m.variant.environment_metrics = meshtastic_EnvironmentMetrics_init_zero;
+
     if (bme280Sensor.hasSensor()) {
-        meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
-        m.which_variant = meshtastic_Telemetry_environment_metrics_tag;
-        m.time = getTime();
-        m.variant.environment_metrics = meshtastic_EnvironmentMetrics_init_zero;
         bme280Sensor.getMetrics(&m);
-
-        LOG_INFO("Send: barometric_pressure=%f, current=%f, gas_resistance=%f, "
-                 "relative_humidity=%f, temperature=%f",
-                 m.variant.environment_metrics.barometric_pressure, m.variant.environment_metrics.current,
-                 m.variant.environment_metrics.gas_resistance, m.variant.environment_metrics.relative_humidity,
-                 m.variant.environment_metrics.temperature);
-
-        meshtastic_MeshPacket *p = router->allocForSending();
-        p->to = NODENUM_BROADCAST;
-        p->decoded.portnum = meshtastic_PortNum_TELEMETRY_APP;
-        p->decoded.want_response = false;
-        if (config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR)
-            p->priority = meshtastic_MeshPacket_Priority_RELIABLE;
-        else
-            p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
-        p->decoded.payload.size =
-            pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Telemetry_msg, &m);
-        LOG_INFO("Send EnvironmentTelemetry packet to mesh");
-        service->sendToMesh(p, RX_SRC_LOCAL);
+    } else if (bme680Sensor.hasSensor()) {
+        bme680Sensor.getMetrics(&m);
+    } else {
+        LOG_ERROR("CustomSensorModule: No BME sensor found");
+        return;
     }
+    LOG_INFO("Send: barometric_pressure=%f, current=%f, gas_resistance=%f, "
+             "relative_humidity=%f, temperature=%f",
+             m.variant.environment_metrics.barometric_pressure, m.variant.environment_metrics.current,
+             m.variant.environment_metrics.gas_resistance, m.variant.environment_metrics.relative_humidity,
+             m.variant.environment_metrics.temperature);
+
+    meshtastic_MeshPacket *p = router->allocForSending();
+    p->to = NODENUM_BROADCAST;
+    p->decoded.portnum = meshtastic_PortNum_TELEMETRY_APP;
+    p->decoded.want_response = false;
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR)
+        p->priority = meshtastic_MeshPacket_Priority_RELIABLE;
+    else
+        p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    p->decoded.payload.size =
+        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Telemetry_msg, &m);
+    LOG_INFO("Send EnvironmentTelemetry packet to mesh");
+    service->sendToMesh(p, RX_SRC_LOCAL);
 }
 
 void CustomSensorModule::sendDeviceTelemetry()
@@ -360,7 +449,7 @@ int32_t CustomSensorModule::runOnce()
         LOG_INFO("CustomSensorModule:Telemetry non inviati, aspetto");
     } else if (timeSinceFirstExecution < MIN_ACTIVE_TIME) {
         uint32_t remainingTime = MIN_ACTIVE_TIME - timeSinceFirstExecution;
-        LOG_INFO("CustomSensorModule: Attendo altri %ums prima del deep sleep", remainingTime);
+        // LOG_INFO("CustomSensorModule: Attendo altri %ums prima del deep sleep", remainingTime);
     } else {
         LOG_INFO("CustomSensorModule: Tempo minimo trascorso, programmo deep sleep");
         sleepOnNextExecution = true;

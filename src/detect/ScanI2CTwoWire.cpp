@@ -1,4 +1,5 @@
 #include "ScanI2CTwoWire.h"
+#include "DebugConfiguration.h"
 
 #if !MESHTASTIC_EXCLUDE_I2C
 
@@ -173,10 +174,19 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
 #endif
         type = NONE;
         if (err == 0) {
+            LOG_DEBUG("Device found at address 0x%x", (uint8_t)addr.address);
+
             switch (addr.address) {
-            case SSD1306_ADDRESS:
-                type = probeOLED(addr);
-                break;
+
+            case SSD1306_OR_DS3231_ADDRESS:
+                if (testDS3231(i2cBus, addr.address)) {
+                    type = RTC_DS3231;
+                    logFoundDevice("RTC_DS3231", (uint8_t)addr.address);
+                    break;
+                } else {
+                    type = probeOLED(addr);
+                    break;
+                }
 
 #ifdef RV3028_RTC
             case RV3028_RTC:

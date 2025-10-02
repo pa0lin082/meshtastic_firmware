@@ -58,5 +58,31 @@ class ScanI2CTwoWire : public ScanI2C
     DeviceType probeOLED(ScanI2C::DeviceAddress) const;
 
     static void logFoundDevice(const char *device, uint8_t address);
+    bool testDS3231(TwoWire *i2cBus, uint8_t address)
+    {
+        // Leggi registro dei secondi (0x00)
+        i2cBus->beginTransmission(address);
+        i2cBus->write(0x00);
+        if (i2cBus->endTransmission() != 0)
+            return false;
+
+        i2cBus->requestFrom(address, (uint8_t)7); // Leggi 7 registri tempo
+        if (i2cBus->available() < 7)
+            return false;
+
+        uint8_t data[7];
+        for (int i = 0; i < 7; i++) {
+            data[i] = i2cBus->read();
+        }
+
+        // Verifica formato BCD valido per RTC
+        // Secondi: 0-59, Minuti: 0-59, Ore: 0-23
+        if ((data[0] & 0x0F) > 9 || ((data[0] >> 4) & 0x07) > 5)
+            return false;
+        if ((data[1] & 0x0F) > 9 || ((data[1] >> 4) & 0x07) > 5)
+            return false;
+
+        return true;
+    }
 };
 #endif
