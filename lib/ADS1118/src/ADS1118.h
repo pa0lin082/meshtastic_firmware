@@ -128,11 +128,22 @@ class ADS1118
     const float pgaFSR[8] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256, 0.256, 0.256};
     const uint8_t CONV_TIME[8] = {125, 63, 32, 16, 8, 4, 3, 2}; ///< Array containing the conversions time in ms
 
-    uint8_t spi_init(void);
-    uint8_t spi_deinit(void);
-    uint8_t spi_transmit(uint8_t *tx, uint8_t *rx, uint16_t len);
-    void delay_ms(uint32_t ms);
-    void debug_print(const char *const fmt, ...);
+    // Metodi di istanza per l'interfaccia SPI
+    uint8_t spi_init_impl(void);
+    uint8_t spi_deinit_impl(void);
+    uint8_t spi_transmit_impl(uint8_t *tx, uint8_t *rx, uint16_t len);
+    void delay_ms_impl(uint32_t ms);
+    void debug_print_impl(const char *const fmt, ...);
+
+    // Funzioni wrapper statiche per il driver
+    static uint8_t spi_init_wrapper(void);
+    static uint8_t spi_deinit_wrapper(void);
+    static uint8_t spi_transmit_wrapper(uint8_t *tx, uint8_t *rx, uint16_t len);
+    static void delay_ms_wrapper(uint32_t ms);
+    static void debug_print_wrapper(const char *const fmt, ...);
+
+    // Puntatore all'istanza corrente per le funzioni statiche
+    static ADS1118 *current_instance;
 };
 
 #endif

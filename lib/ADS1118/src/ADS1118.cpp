@@ -34,6 +34,9 @@
 #include "ADS1118.h"
 #include "Arduino.h"
 
+// Definizione della variabile statica per l'istanza corrente
+ADS1118 *ADS1118::current_instance = nullptr;
+
 /**
  * Debugging:
  *   Uncomment some of the 3 lines above to debug the method you want.
@@ -81,12 +84,15 @@ ADS1118::ADS1118(uint8_t io_pin_cs, SPIClass *spi)
     cs = io_pin_cs;
     pSpi = spi;
 
+    // Imposta questa istanza come corrente per le funzioni statiche
+    current_instance = this;
+
     DRIVER_ADS1118_LINK_INIT(&gs_handle, ads1118_handle_t);
-    DRIVER_ADS1118_LINK_SPI_INIT(&gs_handle, spi_init);
-    DRIVER_ADS1118_LINK_SPI_DEINIT(&gs_handle, spi_deinit);
-    DRIVER_ADS1118_LINK_SPI_TRANSMIT(&gs_handle, spi_transmit);
-    DRIVER_ADS1118_LINK_DELAY_MS(&gs_handle, delay_ms);
-    DRIVER_ADS1118_LINK_DEBUG_PRINT(&gs_handle, debug_print);
+    DRIVER_ADS1118_LINK_SPI_INIT(&gs_handle, spi_init_wrapper);
+    DRIVER_ADS1118_LINK_SPI_DEINIT(&gs_handle, spi_deinit_wrapper);
+    DRIVER_ADS1118_LINK_SPI_TRANSMIT(&gs_handle, spi_transmit_wrapper);
+    DRIVER_ADS1118_LINK_DELAY_MS(&gs_handle, delay_ms_wrapper);
+    DRIVER_ADS1118_LINK_DEBUG_PRINT(&gs_handle, debug_print_wrapper);
 }
 #endif
 
@@ -517,4 +523,99 @@ void ADS1118::decodeConfigRegister(union Config configRegister)
     }
     Serial.println("\nSTART MXSEL PGASL MODES RATES ADTMP PLLUP NOOPE RESER");
     Serial.println(message);
+}
+
+// Implementazioni delle funzioni wrapper statiche per il driver ADS1118
+uint8_t ADS1118::spi_init_wrapper(void)
+{
+    if (current_instance) {
+        return current_instance->spi_init_impl();
+    }
+    return 1; // Errore se non c'è istanza corrente
+}
+
+uint8_t ADS1118::spi_deinit_wrapper(void)
+{
+    if (current_instance) {
+        return current_instance->spi_deinit_impl();
+    }
+    return 1; // Errore se non c'è istanza corrente
+}
+
+uint8_t ADS1118::spi_transmit_wrapper(uint8_t *tx, uint8_t *rx, uint16_t len)
+{
+    if (current_instance) {
+        return current_instance->spi_transmit_impl(tx, rx, len);
+    }
+    return 1; // Errore se non c'è istanza corrente
+}
+
+void ADS1118::delay_ms_wrapper(uint32_t ms)
+{
+    if (current_instance) {
+        current_instance->delay_ms_impl(ms);
+    }
+}
+
+void ADS1118::debug_print_wrapper(const char *const fmt, ...)
+{
+    if (current_instance) {
+        current_instance->debug_print_impl(fmt);
+    }
+}
+
+// Implementazioni dei metodi di istanza per l'interfaccia SPI
+uint8_t ADS1118::spi_init_impl(void)
+{
+#if defined(ESP32)
+    if (pSpi) {
+        pSpi->begin();
+        pinMode(cs, OUTPUT);
+        digitalWrite(cs, HIGH);
+        return 0; // Successo
+    }
+#endif
+    return 1; // Errore
+}
+
+uint8_t ADS1118::spi_deinit_impl(void)
+{
+#if defined(ESP32)
+    if (pSpi) {
+        pSpi->end();
+        return 0; // Successo
+    }
+#endif
+    return 1; // Errore
+}
+
+uint8_t ADS1118::spi_transmit_impl(uint8_t *tx, uint8_t *rx, uint16_t len)
+{
+#if defined(ESP32)
+    if (pSpi) {
+        digitalWrite(cs, LOW);
+        pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
+
+        for (uint16_t i = 0; i < len; i++) {
+            rx[i] = pSpi->transfer(tx[i]);
+        }
+
+        pSpi->endTransaction();
+        digitalWrite(cs, HIGH);
+        return 0; // Successo
+    }
+#endif
+    return 1; // Errore
+}
+
+void ADS1118::delay_ms_impl(uint32_t ms)
+{
+    delay(ms);
+}
+
+void ADS1118::debug_print_impl(const char *const fmt, ...)
+{
+    // Implementazione semplice per debug - può essere migliorata
+    Serial.print("ADS1118 Debug: ");
+    Serial.println(fmt);
 }
