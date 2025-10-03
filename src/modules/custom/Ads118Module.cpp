@@ -190,9 +190,10 @@ void Ads118Module::sendADS1118Telemetry()
     float voltages[4];
     int16_t rawValues[4];
 
+    const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3};
     for (int channel = 0; channel < 4; channel++) {
-        voltages[channel] = readChannel(channel);
-        rawValues[channel] = readChannelRaw(channel);
+        voltages[channel] = ads1118->getMilliVolts(inputs[channel]);
+        // rawValues[channel] = readChannelRaw(channel);
         LOG_INFO("Ads118Module: Channel %d: %.6f V (raw: %d)", channel, voltages[channel], rawValues[channel]);
     }
 
@@ -251,25 +252,29 @@ int32_t Ads118Module::runOnce()
     }
 
     if (ads1118 != NULL) {
-        const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
-                                            ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
-        const double temperature = ads1118->getTemperature();
-        LOG_INFO("Ads118Module: Temperature: %f", temperature);
-        for (int i = 0; i < 4; i++) {
-            delay(100);
-            ads1118->setInputSelected(inputs[i]);
-            const double milliVolts = ads1118->getMilliVolts();
-            delay(100);
-            const double milliVolts2 = ads1118->getMilliVolts(inputs[i]);
-            LOG_INFO("Ads118Module: Input AIN_%d, MilliVolts: %f MilliVolts2: %f", i, milliVolts, milliVolts2);
+        const ads1118_rate_t rates[] = {ads1118->RATE_8SPS,   ads1118->RATE_16SPS,  ads1118->RATE_32SPS,  ads1118->RATE_64SPS,
+                                        ads1118->RATE_128SPS, ads1118->RATE_250SPS, ads1118->RATE_475SPS, ads1118->RATE_860SPS};
+        for (int rate = 0; rate < 8; rate++) {
+            ads1118->setSamplingRate(rates[rate]);
+            LOG_INFO("Ads118Module: Sampling Rate: %d", rates[rate]);
+            const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
+                                                ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
+            const double temperature = ads1118->getTemperature();
+            LOG_INFO("Ads118Module: Temperature: %f", temperature);
+            for (int i = 0; i < 4; i++) {
+                // ads1118->setInputSelected(inputs[i]);
+                // delay(100);                                                  // Aspetta che la configurazione sia applicata
+                const double milliVolts = ads1118->getMilliVolts(inputs[i]); // Usa sempre il canale esplicito
+                LOG_INFO("Ads118Module: Input AIN_%d, MilliVolts: %f", i, milliVolts);
 
-            // double milliVoltsNoWait;
-            // const bool success = ads1118->getMilliVoltsNoWait(inputs[i], milliVoltsNoWait);
-            // if (success) {
-            //     LOG_INFO("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
-            // } else {
-            //     LOG_ERROR("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
-            // }
+                // double milliVoltsNoWait;
+                // const bool success = ads1118->getMilliVoltsNoWait(inputs[i], milliVoltsNoWait);
+                // if (success) {
+                //     LOG_INFO("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
+                // } else {
+                //     LOG_ERROR("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
+                // }
+            }
         }
     } else {
         LOG_ERROR("Ads1118Module: ADS1118 non inizializzato");

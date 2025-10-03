@@ -47,15 +47,6 @@ class Ads118Module : private concurrency::OSThread
     /** Inizializza l'ADS1118 */
     bool initADS1118();
 
-    /** Legge un canale specifico */
-    float readChannel(int channel);
-
-    /** Legge un canale in formato raw */
-    int16_t readChannelRaw(int channel);
-
-    /** Converte valore raw in voltaggio */
-    float rawToVoltage(int16_t rawValue);
-
     /** Test di comunicazione SPI */
     bool testSPICommunication();
 
@@ -64,12 +55,6 @@ class Ads118Module : private concurrency::OSThread
 
     /** Invia telemetria ADS1118 */
     void sendADS1118Telemetry();
-
-    /** Configura il gain dell'ADS1118 */
-    void setGain(int gain);
-
-    /** Configura il data rate dell'ADS1118 */
-    void setDataRate(int rate);
 };
 
 extern Ads118Module *ads118Module;

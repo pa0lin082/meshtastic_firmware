@@ -152,7 +152,7 @@ void ADS1118::begin(uint8_t sclk, uint8_t miso, uint8_t mosi)
 void ADS1118::setDefaultConfig()
 {
     configRegister.bits = {RESERVED,   VALID_CFG, DOUT_NO_PULLUP, ADC_MODE, RATE_8SPS,
-                           CONTINUOUS, FSR_4096,  AIN_0,          START_NOW}; // Default values
+                           CONTINUOUS, FSR_4096,  AIN_3,          START_NOW}; // Default values
     DEBUG_BEGIN(configRegister); // Debug this method: print the config register in the Serial port
 }
 
@@ -189,11 +189,6 @@ uint8_t ADS1118::setupModule()
         debug_print_impl("ads1118: enablePullup or disablePullup failed.\n");
     }
     return res;
-    // double res = setupModule();
-    // if (res != 0) {
-    //     debug_print_impl("ads1118: setupModule failed.\n");
-    // }
-    return 0;
 }
 
 /**
@@ -304,9 +299,10 @@ double ADS1118::getMilliVolts(ads1118_channel_t inputs)
     float volts;
     uint8_t res;
 
-    if (configRegister.bits.mux != inputs) {
-        setInputSelected(inputs);
-    }
+    // Sempre imposta il canale per garantire che sia corretto
+    setInputSelected(inputs);
+    // Aspetta che la configurazione sia applicata
+    delay(150);
 
     if (configRegister.bits.operatingMode == SINGLE_SHOT) {
         if ((res = ads1118_single_read(&gs_handle, &raw, &volts)) != 0) {
@@ -338,7 +334,14 @@ double ADS1118::getMilliVolts(ads1118_channel_t inputs)
  */
 double ADS1118::getMilliVolts()
 {
-    return getMilliVolts(configRegister.bits.mux);
+    // Leggi il canale attualmente configurato dal chip invece di usare il registro locale
+    ads1118_channel_t current_channel;
+    uint8_t res = ads1118_get_channel(&gs_handle, &current_channel);
+    if (res != 0) {
+        // Se fallisce, usa il registro locale come fallback
+        return getMilliVolts(configRegister.bits.mux);
+    }
+    return getMilliVolts(current_channel);
     // if (configRegister.bits.sensorMode != ADC_MODE) {
     //     configRegister.bits.sensorMode = ADC_MODE;
     //     ads1118_set_mode(&gs_handle, configRegister.bits.sensorMode);
@@ -395,6 +398,8 @@ double ADS1118::getTemperature()
 uint8_t ADS1118::setSamplingRate(ads1118_rate_t samplingRate)
 {
     configRegister.bits.rate = samplingRate;
+    Serial.print("SetSamplingRate: ");
+    Serial.println(samplingRate);
     return ads1118_set_rate(&gs_handle, configRegister.bits.rate);
 }
 
@@ -406,6 +411,8 @@ uint8_t ADS1118::setSamplingRate(ads1118_rate_t samplingRate)
 uint8_t ADS1118::setFullScaleRange(ads1118_range_t fsr)
 {
     configRegister.bits.pga = fsr;
+    Serial.print("SetFullScaleRange: ");
+    Serial.println(fsr);
     return ads1118_set_range(&gs_handle, configRegister.bits.pga);
 }
 
@@ -416,8 +423,34 @@ uint8_t ADS1118::setFullScaleRange(ads1118_range_t fsr)
  */
 uint8_t ADS1118::setInputSelected(ads1118_channel_t input)
 {
-    configRegister.bits.mux = input;
-    return ads1118_set_channel(&gs_handle, configRegister.bits.mux);
+    ads1118_channel_t current_channel;
+    ads1118_get_channel(&gs_handle, &current_channel);
+    Serial.print("Current channel: ");
+    Serial.println(current_channel);
+
+    // Se siamo in modalità continuous, fermala temporaneamente
+    bool was_continuous = (configRegister.bits.operatingMode == CONTINUOUS);
+    if (was_continuous) {
+        ads1118_stop_continuous_read(&gs_handle);
+        delay(10);
+    }
+
+    uint8_t res = ads1118_set_channel(&gs_handle, input);
+    if (res == 0) {
+        // Aggiorna il registro locale solo se il comando è andato a buon fine
+        configRegister.bits.mux = input;
+        Serial.print("SetInputSelected: ");
+        Serial.print(input);
+        Serial.print(" result: ");
+        Serial.println(res);
+
+        // Se eravamo in modalità continuous, riavviala
+        if (was_continuous) {
+            delay(10);
+            ads1118_start_continuous_read(&gs_handle);
+        }
+    }
+    return res;
 }
 
 /**
@@ -425,7 +458,9 @@ uint8_t ADS1118::setInputSelected(ads1118_channel_t input)
  */
 uint8_t ADS1118::setContinuousMode()
 {
+
     configRegister.bits.operatingMode = CONTINUOUS;
+    Serial.println("setContinuousMode");
     return ads1118_start_continuous_read(&gs_handle);
 }
 
@@ -435,6 +470,7 @@ uint8_t ADS1118::setContinuousMode()
 uint8_t ADS1118::setSingleShotMode()
 {
     configRegister.bits.operatingMode = SINGLE_SHOT;
+    Serial.println("setSingleShotMode");
     return ads1118_stop_continuous_read(&gs_handle);
 }
 
