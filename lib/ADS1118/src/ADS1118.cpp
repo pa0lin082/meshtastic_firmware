@@ -33,6 +33,7 @@
 
 #include "ADS1118.h"
 #include "Arduino.h"
+#include "driver_ads1118.h"
 
 // Definizione della variabile statica per l'istanza corrente
 ADS1118 *ADS1118::current_instance = nullptr;
@@ -46,6 +47,10 @@ ADS1118 *ADS1118::current_instance = nullptr;
 // #define DEBUG_BEGIN  			//Debug begin() method
 // #define DEBUG_GETADCVALUE  	//Debug getADCValue() method
 // #define DEBUG_GETTEMPERATURE  //Debug getTemperature() method
+
+#define DEBUG_BEGIN true
+#define DEBUG_GETADCVALUE true
+#define DEBUG_GETTEMPERATURE true
 
 #ifdef DEBUG_BEGIN
 #define DEBUG_BEGIN(x) decodeConfigRegister(x)
@@ -87,12 +92,18 @@ ADS1118::ADS1118(uint8_t io_pin_cs, SPIClass *spi)
     // Imposta questa istanza come corrente per le funzioni statiche
     current_instance = this;
 
+    uint8_t res;
     DRIVER_ADS1118_LINK_INIT(&gs_handle, ads1118_handle_t);
     DRIVER_ADS1118_LINK_SPI_INIT(&gs_handle, spi_init_wrapper);
     DRIVER_ADS1118_LINK_SPI_DEINIT(&gs_handle, spi_deinit_wrapper);
     DRIVER_ADS1118_LINK_SPI_TRANSMIT(&gs_handle, spi_transmit_wrapper);
     DRIVER_ADS1118_LINK_DELAY_MS(&gs_handle, delay_ms_wrapper);
     DRIVER_ADS1118_LINK_DEBUG_PRINT(&gs_handle, debug_print_wrapper);
+
+    res = ads1118_init(&gs_handle);
+    if (res != 0) {
+        debug_print_impl("ads1118: init failed.\n");
+    }
 }
 #endif
 
@@ -106,9 +117,7 @@ void ADS1118::begin()
     digitalWrite(cs, HIGH);
     SPI.begin();
     SPI.beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
-    configRegister.bits = {RESERVED,    VALID_CFG, DOUT_PULLUP, ADC_MODE, RATE_8SPS,
-                           SINGLE_SHOT, FSR_0256,  DIFF_0_1,    START_NOW}; // Default values
-    DEBUG_BEGIN(configRegister); // Debug this method: print the config register in the Serial port
+    setDefaultConfig();
 } ///< This method initialize the SPI port and the config register
 #elif defined(ESP32)
 /**
@@ -119,9 +128,12 @@ void ADS1118::begin()
     pinMode(cs, OUTPUT);
     digitalWrite(cs, HIGH);
     pSpi->begin();
-    configRegister.bits = {RESERVED,    VALID_CFG, DOUT_PULLUP, ADC_MODE, RATE_8SPS,
-                           SINGLE_SHOT, FSR_0256,  DIFF_0_1,    START_NOW}; // Default values
-    DEBUG_BEGIN(configRegister); // Debug this method: print the config register in the Serial port
+    setDefaultConfig();
+
+    double res = setupModule();
+    if (res != 0) {
+        debug_print_impl("ads1118: setupModule failed.\n");
+    }
 }
 
 void ADS1118::begin(uint8_t sclk, uint8_t miso, uint8_t mosi)
@@ -129,9 +141,59 @@ void ADS1118::begin(uint8_t sclk, uint8_t miso, uint8_t mosi)
     pinMode(cs, OUTPUT);
     digitalWrite(cs, HIGH);
     pSpi->begin(sclk, miso, mosi, cs);
-    configRegister.bits = {RESERVED,    VALID_CFG, DOUT_PULLUP, ADC_MODE, RATE_8SPS,
-                           SINGLE_SHOT, FSR_0256,  DIFF_0_1,    START_NOW}; // Default values
+    setDefaultConfig();
+
+    double res = setupModule();
+    if (res != 0) {
+        debug_print_impl("ads1118: setupModule failed.\n");
+    }
+}
+
+void ADS1118::setDefaultConfig()
+{
+    configRegister.bits = {RESERVED,   VALID_CFG, DOUT_NO_PULLUP, ADC_MODE, RATE_8SPS,
+                           CONTINUOUS, FSR_4096,  AIN_0,          START_NOW}; // Default values
     DEBUG_BEGIN(configRegister); // Debug this method: print the config register in the Serial port
+}
+
+uint8_t ADS1118::setupModule()
+{
+    uint8_t res;
+    res = setInputSelected(configRegister.bits.mux);
+    if (res != 0) {
+        debug_print_impl("ads1118: setInputSelected failed.\n");
+    }
+    res = setSamplingRate(configRegister.bits.rate);
+    if (res != 0) {
+        debug_print_impl("ads1118: setSamplingRate failed.\n");
+    }
+    res = setFullScaleRange(configRegister.bits.pga);
+    if (res != 0) {
+        debug_print_impl("ads1118: setFullScaleRange failed.\n");
+    }
+
+    if (configRegister.bits.operatingMode == CONTINUOUS) {
+        res = setContinuousMode();
+    } else {
+        res = setSingleShotMode();
+    }
+    if (res != 0) {
+        debug_print_impl("ads1118: setContinuousMode or setSingleShotMode failed.\n");
+    }
+    if (configRegister.bits.pullUp == DOUT_PULLUP) {
+        res = enablePullup();
+    } else {
+        res = disablePullup();
+    }
+    if (res != 0) {
+        debug_print_impl("ads1118: enablePullup or disablePullup failed.\n");
+    }
+    return res;
+    // double res = setupModule();
+    // if (res != 0) {
+    //     debug_print_impl("ads1118: setupModule failed.\n");
+    // }
+    return 0;
 }
 
 /**
@@ -141,22 +203,22 @@ void ADS1118::begin(uint8_t sclk, uint8_t miso, uint8_t mosi)
  */
 bool ADS1118::getADCValueNoWait(ads1118_channel_t pin_drdy, uint16_t &value)
 {
-    byte dataMSB, dataLSB;
-    pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
-    digitalWrite(cs, LOW);
-    if (digitalRead(pin_drdy)) {
-        digitalWrite(cs, HIGH);
-        pSpi->endTransaction();
-        return false;
-    }
+    // byte dataMSB, dataLSB;
+    // pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
+    // digitalWrite(cs, LOW);
+    // if (digitalRead(pin_drdy)) {
+    //     digitalWrite(cs, HIGH);
+    //     pSpi->endTransaction();
+    //     return false;
+    // }
 
-    dataMSB = pSpi->transfer(configRegister.byte.msb);
-    dataLSB = pSpi->transfer(configRegister.byte.lsb);
-    digitalWrite(cs, HIGH);
-    pSpi->endTransaction();
+    // dataMSB = pSpi->transfer(configRegister.byte.msb);
+    // dataLSB = pSpi->transfer(configRegister.byte.lsb);
+    // digitalWrite(cs, HIGH);
+    // pSpi->endTransaction();
 
-    value = (dataMSB << 8) | (dataLSB);
-    return true;
+    // value = (dataMSB << 8) | (dataLSB);
+    // return true;
 }
 
 /**
@@ -165,19 +227,19 @@ bool ADS1118::getADCValueNoWait(ads1118_channel_t pin_drdy, uint16_t &value)
  */
 bool ADS1118::getMilliVoltsNoWait(ads1118_channel_t pin_drdy, double &volts)
 {
-    float fsr = pgaFSR[configRegister.bits.pga];
-    uint16_t value;
-    bool dataReady = getADCValueNoWait(pin_drdy, value);
-    if (!dataReady)
-        return false;
-    if (value >= 0x8000) {
-        value = ((~value) + 1); // Applying binary twos complement format
-        volts = ((float)(value * fsr / 32768) * -1);
-    } else {
-        volts = (float)(value * fsr / 32768);
-    }
-    volts = volts * 1000;
-    return true;
+    // float fsr = pgaFSR[configRegister.bits.pga];
+    // uint16_t value;
+    // bool dataReady = getADCValueNoWait(pin_drdy, value);
+    // if (!dataReady)
+    //     return false;
+    // if (value >= 0x8000) {
+    //     value = ((~value) + 1); // Applying binary twos complement format
+    //     volts = ((float)(value * fsr / 32768) * -1);
+    // } else {
+    //     volts = (float)(value * fsr / 32768);
+    // }
+    // volts = volts * 1000;
+    // return true;
 }
 #endif
 
@@ -189,41 +251,41 @@ bool ADS1118::getMilliVoltsNoWait(ads1118_channel_t pin_drdy, double &volts)
  */
 uint16_t ADS1118::getADCValue(ads1118_channel_t inputs)
 {
-    uint16_t value;
-    byte dataMSB, dataLSB, configMSB, configLSB, count = 0;
-    if (lastSensorMode == ADC_MODE) // Lucky you! We don't have to read twice the sensor
-        count = 1;
-    else
-        configRegister.bits.sensorMode = ADC_MODE; // Sorry but we will have to read twice the sensor
-    configRegister.bits.mux = inputs;
-    do {
-#if defined(ESP32)
-        pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
-#endif
-        digitalWrite(cs, LOW);
-#if defined(__AVR__)
-        dataMSB = SPI.transfer(configRegister.byte.msb);
-        dataLSB = SPI.transfer(configRegister.byte.lsb);
-        configMSB = SPI.transfer(configRegister.byte.msb);
-        configLSB = SPI.transfer(configRegister.byte.lsb);
-#elif defined(ESP32)
-        dataMSB = pSpi->transfer(configRegister.byte.msb);
-        dataLSB = pSpi->transfer(configRegister.byte.lsb);
-        configMSB = pSpi->transfer(configRegister.byte.msb);
-        configLSB = pSpi->transfer(configRegister.byte.lsb);
-#endif
+    //     uint16_t value;
+    //     byte dataMSB, dataLSB, configMSB, configLSB, count = 0;
+    //     if (lastSensorMode == ADC_MODE) // Lucky you! We don't have to read twice the sensor
+    //         count = 1;
+    //     else
+    //         configRegister.bits.sensorMode = ADC_MODE; // Sorry but we will have to read twice the sensor
+    //     configRegister.bits.mux = inputs;
+    //     do {
+    // #if defined(ESP32)
+    //         pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
+    // #endif
+    //         digitalWrite(cs, LOW);
+    // #if defined(__AVR__)
+    //         dataMSB = SPI.transfer(configRegister.byte.msb);
+    //         dataLSB = SPI.transfer(configRegister.byte.lsb);
+    //         configMSB = SPI.transfer(configRegister.byte.msb);
+    //         configLSB = SPI.transfer(configRegister.byte.lsb);
+    // #elif defined(ESP32)
+    //         dataMSB = pSpi->transfer(configRegister.byte.msb);
+    //         dataLSB = pSpi->transfer(configRegister.byte.lsb);
+    //         configMSB = pSpi->transfer(configRegister.byte.msb);
+    //         configLSB = pSpi->transfer(configRegister.byte.lsb);
+    // #endif
 
-        digitalWrite(cs, HIGH);
-#if defined(ESP32)
-        pSpi->endTransaction();
-#endif
-        for (int i = 0; i < CONV_TIME[configRegister.bits.rate]; i++) // Lets wait the conversion time
-            delayMicroseconds(1000);
-        count++;
-    } while (count <= 1);              // We make two readings because the second reading is the ADC conversion.
-    DEBUG_GETADCVALUE(configRegister); // Debug this method: print the config register in the Serial port
-    value = (dataMSB << 8) | (dataLSB);
-    return value;
+    //         digitalWrite(cs, HIGH);
+    // #if defined(ESP32)
+    //         pSpi->endTransaction();
+    // #endif
+    //         for (int i = 0; i < CONV_TIME[configRegister.bits.rate]; i++) // Lets wait the conversion time
+    //             delayMicroseconds(1000);
+    //         count++;
+    //     } while (count <= 1);              // We make two readings because the second reading is the ADC conversion.
+    //     DEBUG_GETADCVALUE(configRegister); // Debug this method: print the config register in the Serial port
+    //     value = (dataMSB << 8) | (dataLSB);
+    //     return value;
 }
 
 /**
@@ -234,17 +296,40 @@ uint16_t ADS1118::getADCValue(ads1118_channel_t inputs)
  */
 double ADS1118::getMilliVolts(ads1118_channel_t inputs)
 {
-    float volts;
-    float fsr = pgaFSR[configRegister.bits.pga];
-    uint16_t value;
-    value = getADCValue(inputs);
-    if (value >= 0x8000) {
-        value = ((~value) + 1); // Applying binary twos complement format
-        volts = ((float)(value * fsr / 32768) * -1);
-    } else {
-        volts = (float)(value * fsr / 32768);
+    if (configRegister.bits.sensorMode != ADC_MODE) {
+        configRegister.bits.sensorMode = ADC_MODE;
+        ads1118_set_mode(&gs_handle, configRegister.bits.sensorMode);
     }
+    int16_t raw;
+    float volts;
+    uint8_t res;
+
+    if (configRegister.bits.mux != inputs) {
+        setInputSelected(inputs);
+    }
+
+    if (configRegister.bits.operatingMode == SINGLE_SHOT) {
+        if ((res = ads1118_single_read(&gs_handle, &raw, &volts)) != 0) {
+            throw std::runtime_error("getMilliVolts single read failed with error: " + std::to_string(res));
+        }
+    } else {
+        if ((res = ads1118_continuous_read(&gs_handle, &raw, &volts)) != 0) {
+            throw std::runtime_error("getMilliVolts continuous read failed with error: " + std::to_string(res));
+        }
+    }
+
     return volts * 1000;
+    // float volts;
+    // float fsr = pgaFSR[configRegister.bits.pga];
+    // uint16_t value;
+    // value = getADCValue(inputs);
+    // if (value >= 0x8000) {
+    //     value = ((~value) + 1); // Applying binary twos complement format
+    //     volts = ((float)(value * fsr / 32768) * -1);
+    // } else {
+    //     volts = (float)(value * fsr / 32768);
+    // }
+    // return volts * 1000;
 }
 
 /**
@@ -253,17 +338,22 @@ double ADS1118::getMilliVolts(ads1118_channel_t inputs)
  */
 double ADS1118::getMilliVolts()
 {
-    float volts;
-    float fsr = pgaFSR[configRegister.bits.pga];
-    uint16_t value;
-    value = getADCValue(configRegister.bits.mux);
-    if (value >= 0x8000) {
-        value = ((~value) + 1); // Applying binary twos complement format
-        volts = ((float)(value * fsr / 32768) * -1);
-    } else {
-        volts = (float)(value * fsr / 32768);
-    }
-    return volts * 1000;
+    return getMilliVolts(configRegister.bits.mux);
+    // if (configRegister.bits.sensorMode != ADC_MODE) {
+    //     configRegister.bits.sensorMode = ADC_MODE;
+    //     ads1118_set_mode(&gs_handle, configRegister.bits.sensorMode);
+    // }
+    // float volts;
+    // float fsr = pgaFSR[configRegister.bits.pga];
+    // uint16_t value;
+    // value = getADCValue(configRegister.bits.mux);
+    // if (value >= 0x8000) {
+    //     value = ((~value) + 1); // Applying binary twos complement format
+    //     volts = ((float)(value * fsr / 32768) * -1);
+    // } else {
+    //     volts = (float)(value * fsr / 32768);
+    // }
+    // return volts * 1000;
 }
 
 /**
@@ -272,44 +362,29 @@ double ADS1118::getMilliVolts()
  */
 double ADS1118::getTemperature()
 {
-    uint16_t convRegister;
-    uint8_t dataMSB, dataLSB, configMSB, configLSB, count = 0;
-    if (lastSensorMode == TEMP_MODE)
-        count = 1; // Lucky you! We don't have to read twice the sensor
-    else
-        configRegister.bits.sensorMode = TEMP_MODE; // Sorry but we will have to read twice the sensor
-    do {
-#if defined(ESP32)
-        pSpi->beginTransaction(SPISettings(SCLK, MSBFIRST, SPI_MODE1));
-#endif
-        digitalWrite(cs, LOW);
-
-#if defined(__AVR__)
-        dataMSB = SPI.transfer(configRegister.byte.msb);
-        dataLSB = SPI.transfer(configRegister.byte.lsb);
-        configMSB = SPI.transfer(configRegister.byte.msb);
-        configLSB = SPI.transfer(configRegister.byte.lsb);
-#elif defined(ESP32)
-        dataMSB = pSpi->transfer(configRegister.byte.msb);
-        dataLSB = pSpi->transfer(configRegister.byte.lsb);
-        configMSB = pSpi->transfer(configRegister.byte.msb);
-        configLSB = pSpi->transfer(configRegister.byte.lsb);
-#endif
-        digitalWrite(cs, HIGH);
-#if defined(ESP32)
-        pSpi->endTransaction();
-#endif
-        for (int i = 0; i < CONV_TIME[configRegister.bits.rate]; i++) // Lets wait the conversion time
-            delayMicroseconds(1000);
-        count++;
-    } while (count <= 1);                 // We make two readings because the second reading is the temperature.
-    DEBUG_GETTEMPERATURE(configRegister); // Debug this method: print the config register in the Serial port
-    convRegister = ((dataMSB << 8) | (dataLSB)) >> 2;
-    if ((convRegister << 2) >= 0x8000) {
-        convRegister = ((~convRegister) >> 2) + 1; // Converting to right-justified and applying binary twos complement format
-        return (double)(convRegister * 0.03125 * -1);
+    if (configRegister.bits.sensorMode != TEMP_MODE) {
+        configRegister.bits.sensorMode = TEMP_MODE;
+        ads1118_set_mode(&gs_handle, configRegister.bits.sensorMode);
     }
-    return (double)convRegister * 0.03125;
+
+    int16_t raw;
+    float deg;
+
+    uint8_t res;
+    if (configRegister.bits.operatingMode == SINGLE_SHOT) {
+        if ((res = ads1118_single_read(&gs_handle, &raw, &deg)) != 0) {
+            throw std::runtime_error("getTemperature single read failed with error: " + std::to_string(res));
+        }
+    } else {
+        if ((res = ads1118_continuous_read(&gs_handle, &raw, &deg)) != 0) {
+            throw std::runtime_error("getTemperature continuous read failed with error: " + std::to_string(res));
+        }
+    }
+
+    if (ads1118_temperature_convert(&gs_handle, raw, &deg) != 0) {
+        throw std::runtime_error("getTemperature temperature convert failed with error: " + std::to_string(res));
+    }
+    return deg;
 }
 
 /**
@@ -317,9 +392,10 @@ double ADS1118::getTemperature()
  * @param samplingRate It's the sampling rate: RATE_8SPS, RATE_16SPS, RATE_32SPS, RATE_64SPS, RATE_128SPS, RATE_250SPS,
  * RATE_475SPS, RATE_860SPS
  */
-void ADS1118::setSamplingRate(ads1118_rate_t samplingRate)
+uint8_t ADS1118::setSamplingRate(ads1118_rate_t samplingRate)
 {
     configRegister.bits.rate = samplingRate;
+    return ads1118_set_rate(&gs_handle, configRegister.bits.rate);
 }
 
 /**
@@ -327,9 +403,10 @@ void ADS1118::setSamplingRate(ads1118_rate_t samplingRate)
  * @param fsr The full scale range: FSR_6144 (±6.144V)*, FSR_4096(±4.096V)*, FSR_2048(±2.048V), FSR_1024(±1.024V),
  * FSR_0512(±0.512V), FSR_0256(±0.256V). (*) No more than VDD + 0.3 V must be applied to this device.
  */
-void ADS1118::setFullScaleRange(ads1118_range_t fsr)
+uint8_t ADS1118::setFullScaleRange(ads1118_range_t fsr)
 {
     configRegister.bits.pga = fsr;
+    return ads1118_set_range(&gs_handle, configRegister.bits.pga);
 }
 
 /**
@@ -337,41 +414,46 @@ void ADS1118::setFullScaleRange(ads1118_range_t fsr)
  * @param input The input selected: Diferential inputs: DIFF_0_1, DIFF_0_3, DIFF_1_3, DIFF_2_3. Single ended input: AIN_0, AIN_1,
  * AIN_2, AIN_3
  */
-void ADS1118::setInputSelected(ads1118_channel_t input)
+uint8_t ADS1118::setInputSelected(ads1118_channel_t input)
 {
     configRegister.bits.mux = input;
+    return ads1118_set_channel(&gs_handle, configRegister.bits.mux);
 }
 
 /**
  * Setting to continuous adquisition mode
  */
-void ADS1118::setContinuousMode()
+uint8_t ADS1118::setContinuousMode()
 {
     configRegister.bits.operatingMode = CONTINUOUS;
+    return ads1118_start_continuous_read(&gs_handle);
 }
 
 /**
  * Setting to single shot adquisition and power down mode
  */
-void ADS1118::setSingleShotMode()
+uint8_t ADS1118::setSingleShotMode()
 {
     configRegister.bits.operatingMode = SINGLE_SHOT;
+    return ads1118_stop_continuous_read(&gs_handle);
 }
 
 /**
  * Disabling the internal pull-up resistor of the DOUT pin
  */
-void ADS1118::disablePullup()
+uint8_t ADS1118::disablePullup()
 {
     configRegister.bits.operatingMode = DOUT_NO_PULLUP;
+    return ads1118_set_dout_pull_up(&gs_handle, configRegister.bits.operatingMode);
 }
 
 /**
  * Enabling the internal pull-up resistor of the DOUT pin
  */
-void ADS1118::enablePullup()
+uint8_t ADS1118::enablePullup()
 {
     configRegister.bits.operatingMode = DOUT_PULLUP;
+    return ads1118_set_dout_pull_up(&gs_handle, configRegister.bits.operatingMode);
 }
 
 /**
@@ -380,188 +462,28 @@ void ADS1118::enablePullup()
  */
 void ADS1118::decodeConfigRegister(union Config configRegister)
 {
-    String message = String();
-    switch (configRegister.bits.singleStart) {
-    case 0:
-        message = "NOINI";
-        break;
-    case 1:
-        message = "START";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.mux) {
-    case 0:
-        message += "A0-A1";
-        break;
-    case 1:
-        message += "A0-A3";
-        break;
-    case 2:
-        message += "A1-A3";
-        break;
-    case 3:
-        message += "A2-A3";
-        break;
-    case 4:
-        message += "A0-GD";
-        break;
-    case 5:
-        message += "A1-GD";
-        break;
-    case 6:
-        message += "A2-GD";
-        break;
-    case 7:
-        message += "A3-GD";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.pga) {
-    case 0:
-        message += "6.144";
-        break;
-    case 1:
-        message += "4.096";
-        break;
-    case 2:
-        message += "2.048";
-        break;
-    case 3:
-        message += "1.024";
-        break;
-    case 4:
-        message += "0.512";
-        break;
-    case 5:
-        message += "0.256";
-        break;
-    case 6:
-        message += "0.256";
-        break;
-    case 7:
-        message += "0.256";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.operatingMode) {
-    case 0:
-        message += "CONT.";
-        break;
-    case 1:
-        message += "SSHOT";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.rate) {
-    case 0:
-        message += "8 SPS";
-        break;
-    case 1:
-        message += "16SPS";
-        break;
-    case 2:
-        message += "32SPS";
-        break;
-    case 3:
-        message += "64SPS";
-        break;
-    case 4:
-        message += "128SP";
-        break;
-    case 5:
-        message += "250SP";
-        break;
-    case 6:
-        message += "475SP";
-        break;
-    case 7:
-        message += "860SP";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.sensorMode) {
-    case 0:
-        message += "ADC_M";
-        break;
-    case 1:
-        message += "TMP_M";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.pullUp) {
-    case 0:
-        message += "DISAB";
-        break;
-    case 1:
-        message += "ENABL";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.noOperation) {
-    case 0:
-        message += "INVAL";
-        break;
-    case 1:
-        message += "VALID";
-        break;
-    case 2:
-        message += "INVAL";
-        break;
-    case 3:
-        message += "INVAL";
-        break;
-    }
-    message += " ";
-    switch (configRegister.bits.reserved) {
-    case 0:
-        message += "RSRV0";
-        break;
-    case 1:
-        message += "RSRV1";
-        break;
-    }
+    // Array di stringhe per ogni campo
+    const char *singleStartStr[] = {"NOINI", "START"};
+    const char *muxStr[] = {"A0-A1", "A0-A3", "A1-A3", "A2-A3", "A0-GD", "A1-GD", "A2-GD", "A3-GD"};
+    const char *pgaStr[] = {"6.144", "4.096", "2.048", "1.024", "0.512", "0.256", "0.256", "0.256"};
+    const char *operatingModeStr[] = {"CONT.", "SSHOT"};
+    const char *rateStr[] = {"8 SPS", "16SPS", "32SPS", "64SPS", "128SP", "250SP", "475SP", "860SP"};
+    const char *sensorModeStr[] = {"ADC_M", "TMP_M"};
+    const char *pullUpStr[] = {"DISAB", "ENABL"};
+    const char *noOperationStr[] = {"INVAL", "VALID", "INVAL", "INVAL"};
+    const char *reservedStr[] = {"RSRV0", "RSRV1"};
+
+    // Costruzione del messaggio usando gli array
+    String message =
+        String(singleStartStr[configRegister.bits.singleStart]) + " " + String(muxStr[configRegister.bits.mux]) + " " +
+        String(pgaStr[configRegister.bits.pga]) + " " + String(operatingModeStr[configRegister.bits.operatingMode]) + " " +
+        String(rateStr[configRegister.bits.rate]) + " " + String(sensorModeStr[configRegister.bits.sensorMode]) + " " +
+        String(pullUpStr[configRegister.bits.pullUp]) + " " + String(noOperationStr[configRegister.bits.noOperation]) + " " +
+        String(reservedStr[configRegister.bits.reserved]);
+
+    // Stampa header e messaggio
     Serial.println("\nSTART MXSEL PGASL MODES RATES ADTMP PLLUP NOOPE RESER");
     Serial.println(message);
-}
-
-// Implementazioni delle funzioni wrapper statiche per il driver ADS1118
-uint8_t ADS1118::spi_init_wrapper(void)
-{
-    if (current_instance) {
-        return current_instance->spi_init_impl();
-    }
-    return 1; // Errore se non c'è istanza corrente
-}
-
-uint8_t ADS1118::spi_deinit_wrapper(void)
-{
-    if (current_instance) {
-        return current_instance->spi_deinit_impl();
-    }
-    return 1; // Errore se non c'è istanza corrente
-}
-
-uint8_t ADS1118::spi_transmit_wrapper(uint8_t *tx, uint8_t *rx, uint16_t len)
-{
-    if (current_instance) {
-        return current_instance->spi_transmit_impl(tx, rx, len);
-    }
-    return 1; // Errore se non c'è istanza corrente
-}
-
-void ADS1118::delay_ms_wrapper(uint32_t ms)
-{
-    if (current_instance) {
-        current_instance->delay_ms_impl(ms);
-    }
-}
-
-void ADS1118::debug_print_wrapper(const char *const fmt, ...)
-{
-    if (current_instance) {
-        current_instance->debug_print_impl(fmt);
-    }
 }
 
 // Implementazioni dei metodi di istanza per l'interfaccia SPI
@@ -618,4 +540,43 @@ void ADS1118::debug_print_impl(const char *const fmt, ...)
     // Implementazione semplice per debug - può essere migliorata
     Serial.print("ADS1118 Debug: ");
     Serial.println(fmt);
+}
+
+// Implementazioni delle funzioni wrapper statiche per il driver ADS1118
+uint8_t ADS1118::spi_init_wrapper(void)
+{
+    if (current_instance) {
+        return current_instance->spi_init_impl();
+    }
+    return 1; // Errore se non c'è istanza corrente
+}
+
+uint8_t ADS1118::spi_deinit_wrapper(void)
+{
+    if (current_instance) {
+        return current_instance->spi_deinit_impl();
+    }
+    return 1; // Errore se non c'è istanza corrente
+}
+
+uint8_t ADS1118::spi_transmit_wrapper(uint8_t *tx, uint8_t *rx, uint16_t len)
+{
+    if (current_instance) {
+        return current_instance->spi_transmit_impl(tx, rx, len);
+    }
+    return 1; // Errore se non c'è istanza corrente
+}
+
+void ADS1118::delay_ms_wrapper(uint32_t ms)
+{
+    if (current_instance) {
+        current_instance->delay_ms_impl(ms);
+    }
+}
+
+void ADS1118::debug_print_wrapper(const char *const fmt, ...)
+{
+    if (current_instance) {
+        current_instance->debug_print_impl(fmt);
+    }
 }

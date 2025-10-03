@@ -53,14 +53,14 @@ class ADS1118
     double getMilliVolts();                                              ///< Getting the millivolts from the settled inputs
     void decodeConfigRegister(
         union Config configRegister); ///< Decoding a configRegister structure and then print it out to the Serial port
-    void setSamplingRate(ads1118_rate_t samplingRate); ///< Setting the sampling rate specified in the config register
-    void setFullScaleRange(ads1118_range_t fsr);       ///< Setting the full scale range in the config register
-    void setContinuousMode();                          ///< Setting to continuous adquisition mode
-    void setSingleShotMode();                          ///< Setting to single shot adquisition and power down mode
-    void disablePullup();                              ///< Disabling the internal pull-up resistor of the DOUT pin
-    void enablePullup();                               ///< Enabling the internal pull-up resistor of the DOUT pin
-    void setInputSelected(ads1118_channel_t input);    ///< Setting the inputs to be adquired in the config register.
-                                                       // Input multiplexer configuration selection for bits "MUX"
+    uint8_t setSamplingRate(ads1118_rate_t samplingRate); ///< Setting the sampling rate specified in the config register
+    uint8_t setFullScaleRange(ads1118_range_t fsr);       ///< Setting the full scale range in the config register
+    uint8_t setContinuousMode();                          ///< Setting to continuous adquisition mode
+    uint8_t setSingleShotMode();                          ///< Setting to single shot adquisition and power down mode
+    uint8_t disablePullup();                              ///< Disabling the internal pull-up resistor of the DOUT pin
+    uint8_t enablePullup();                               ///< Enabling the internal pull-up resistor of the DOUT pin
+    uint8_t setInputSelected(ads1118_channel_t input);    ///< Setting the inputs to be adquired in the config register.
+                                                          // Input multiplexer configuration selection for bits "MUX"
     // Differential inputs
     const ads1118_channel_t DIFF_0_1 = ADS1118_CHANNEL_AIN0_AIN1; ///< Differential input: Vin=A0-A1
     const ads1118_channel_t DIFF_0_3 = ADS1118_CHANNEL_AIN0_AIN3; ///< Differential input: Vin=A0-A3
@@ -128,6 +128,8 @@ class ADS1118
     const float pgaFSR[8] = {6.144, 4.096, 2.048, 1.024, 0.512, 0.256, 0.256, 0.256};
     const uint8_t CONV_TIME[8] = {125, 63, 32, 16, 8, 4, 3, 2}; ///< Array containing the conversions time in ms
 
+    uint8_t setupModule(void);
+    void setDefaultConfig(void);
     // Metodi di istanza per l'interfaccia SPI
     uint8_t spi_init_impl(void);
     uint8_t spi_deinit_impl(void);

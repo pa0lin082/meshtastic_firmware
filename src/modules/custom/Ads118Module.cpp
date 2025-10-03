@@ -83,23 +83,23 @@ bool Ads118Module::initADS1118()
 
     LOG_INFO("Ads118Module: ADS1118.begin() completato con successo");
 
-    const ads1118_rate_t samplingRate = ads1118->RATE_8SPS;
-    const ads1118_range_t fullScaleRange = ads1118->FSR_6144; // Cambiato a 4.096V per test
+    //     const ads1118_rate_t samplingRate = ads1118->RATE_8SPS;
+    //     const ads1118_range_t fullScaleRange = ads1118->FSR_6144; // Cambiato a 4.096V per test
 
-    /* Changing the sampling rate.
-Available values: RATE_8SPS, RATE_16SPS, RATE_32SPS, RATE_64SPS, RATE_128SPS, RATE_250SPS, RATE_475SPS, RATE_860SPS */
-    ads1118->setSamplingRate(samplingRate); // Using the setter method to change the sampling rate
-                                            // ads1118->configRegister.bits.rate=ads1118->RATE_8SPS;   //Driving the
-                                            // config register directly. Uncomment if you want to use this way
-    /* Changing the full scale range.
-       Available values: FSR_6144 (±6.144V)*, FSR_4096(±4.096V)*, FSR_2048(±2.048V), FSR_1024(±1.024V), FSR_0512(±0.512V),
-       FSR_0256(±0.256V).
-       (*) No more than VDD + 0.3 V must be applied to this device. */
-    ads1118->setFullScaleRange(fullScaleRange);
-    ads1118->enablePullup();
-    ads1118->setContinuousMode();
+    //     /* Changing the sampling rate.
+    // Available values: RATE_8SPS, RATE_16SPS, RATE_32SPS, RATE_64SPS, RATE_128SPS, RATE_250SPS, RATE_475SPS, RATE_860SPS */
+    //     ads1118->setSamplingRate(samplingRate); // Using the setter method to change the sampling rate
+    //                                             // ads1118->configRegister.bits.rate=ads1118->RATE_8SPS;   //Driving the
+    //                                             // config register directly. Uncomment if you want to use this way
+    //     /* Changing the full scale range.
+    //        Available values: FSR_6144 (±6.144V)*, FSR_4096(±4.096V)*, FSR_2048(±2.048V), FSR_1024(±1.024V), FSR_0512(±0.512V),
+    //        FSR_0256(±0.256V).
+    //        (*) No more than VDD + 0.3 V must be applied to this device. */
+    //     ads1118->setFullScaleRange(fullScaleRange);
+    //     ads1118->enablePullup();
+    //     ads1118->setContinuousMode();
 
-    LOG_INFO("Ads118Module: ADS1118 configurato - Sampling Rate: %d, Full Scale Range: %d", samplingRate, fullScaleRange);
+    // LOG_INFO("Ads118Module: ADS1118 configurato - Sampling Rate: %d, Full Scale Range: %d", samplingRate, fullScaleRange);
 
     // Test di comunicazione per verificare se il sensore risponde
     if (testADS1118Connection()) {
@@ -140,7 +140,7 @@ bool Ads118Module::testADS1118Connection()
     const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3};
     bool anyChannelActive = false;
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 1; i++) {
         // ads1118->setInputSelected(inputs[i]);
         delay(100); // Aspetta stabilizzazione
 
@@ -282,5 +282,5 @@ int32_t Ads118Module::runOnce()
         LOG_INFO("Ads118Module: Telemetria ADS1118 inviata");
     }
 
-    return 5000; // Controlla ogni 5 secondi
+    return 1000; // Controlla ogni 5 secondi
 }
