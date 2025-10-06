@@ -306,11 +306,13 @@ double ADS1118::getMilliVolts(ads1118_channel_t inputs)
 
     if (configRegister.bits.operatingMode == SINGLE_SHOT) {
         if ((res = ads1118_single_read(&gs_handle, &raw, &volts)) != 0) {
-            throw std::runtime_error("getMilliVolts single read failed with error: " + std::to_string(res));
+            Serial.println("getMilliVolts single read failed with error: ");
+            // throw std::runtime_error("getMilliVolts single read failed with error: " + std::to_string(res));
         }
     } else {
         if ((res = ads1118_continuous_read(&gs_handle, &raw, &volts)) != 0) {
-            throw std::runtime_error("getMilliVolts continuous read failed with error: " + std::to_string(res));
+            Serial.println("getMilliVolts continuous read failed with error: ");
+            // throw std::runtime_error("getMilliVolts continuous read failed with error: " + std::to_string(res));
         }
     }
 
@@ -376,16 +378,19 @@ double ADS1118::getTemperature()
     uint8_t res;
     if (configRegister.bits.operatingMode == SINGLE_SHOT) {
         if ((res = ads1118_single_read(&gs_handle, &raw, &deg)) != 0) {
-            throw std::runtime_error("getTemperature single read failed with error: " + std::to_string(res));
+            Serial.println("getTemperature single read failed with error: ");
+            // throw std::runtime_error("getTemperature single read failed with error: " + std::to_string(res));
         }
     } else {
         if ((res = ads1118_continuous_read(&gs_handle, &raw, &deg)) != 0) {
-            throw std::runtime_error("getTemperature continuous read failed with error: " + std::to_string(res));
+            Serial.println("getTemperature continuous read failed with error: ");
+            // throw std::runtime_error("getTemperature continuous read failed with error: " + std::to_string(res));
         }
     }
 
     if (ads1118_temperature_convert(&gs_handle, raw, &deg) != 0) {
-        throw std::runtime_error("getTemperature temperature convert failed with error: " + std::to_string(res));
+        Serial.println("getTemperature temperature convert failed with error: ");
+        // throw std::runtime_error("getTemperature temperature convert failed with error: " + std::to_string(res));
     }
     return deg;
 }

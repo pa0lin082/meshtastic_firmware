@@ -25,6 +25,12 @@ class CustomSensorModule : private concurrency::OSThread
     /** Reset del sensore BH1750 */
     void resetBH1750();
 
+    /** Forza un aggiornamento GPS dal modulo hardware */
+    bool forceGPSUpdate();
+
+    /** Test della funzione GPS - stampa informazioni sulla posizione corrente */
+    void testGPSPosition();
+
   protected:
     /** Metodo principale del thread che viene chiamato periodicamente */
     virtual int32_t runOnce() override;

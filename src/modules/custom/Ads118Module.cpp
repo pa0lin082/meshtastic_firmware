@@ -1,3 +1,4 @@
+
 #include "Ads118Module.h"
 #include "DebugConfiguration.h"
 #include "MeshService.h"
@@ -6,10 +7,14 @@
 #include <SPI.h>
 
 // Pin SPI per ADS1118 (usando i pin JTAG)
-#define ADS1118_SCLK 36 // SUBSPICLK
-#define ADS1118_MOSI 35 // SUBSPID
-#define ADS1118_MISO 37 // SUBSPIQ
-#define ADS1118_CS 34   // SUBSPICS0
+#define ADS1118_SCLK SUBSPICLK // SUBSPICLK
+#define ADS1118_MOSI SUBSPID   // SUBSPID
+#define ADS1118_MISO SUBSPIQ   // SUBSPIQ
+#define ADS1118_CS SUBSPICS0   // SUBSPICS0
+// #define ADS1118_SCLK 36 // SUBSPICLK
+// #define ADS1118_MOSI 35 // SUBSPID
+// #define ADS1118_MISO 37 // SUBSPIQ
+// #define ADS1118_CS 34   // SUBSPICS0
 
 // Dichiarazioni delle variabili globali necessarie
 extern Router *router;
@@ -254,7 +259,7 @@ int32_t Ads118Module::runOnce()
     if (ads1118 != NULL) {
         const ads1118_rate_t rates[] = {ads1118->RATE_8SPS,   ads1118->RATE_16SPS,  ads1118->RATE_32SPS,  ads1118->RATE_64SPS,
                                         ads1118->RATE_128SPS, ads1118->RATE_250SPS, ads1118->RATE_475SPS, ads1118->RATE_860SPS};
-        for (int rate = 0; rate < 8; rate++) {
+        for (int rate = 0; rate < 1; rate++) {
             ads1118->setSamplingRate(rates[rate]);
             LOG_INFO("Ads118Module: Sampling Rate: %d", rates[rate]);
             const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,

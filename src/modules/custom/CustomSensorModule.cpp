@@ -43,6 +43,27 @@ extern BH1750Sensor bh1750Sensor;
 NullSensor bh1750Sensor;
 #endif
 
+#if __has_include(<Adafruit_SHT31.h>)
+#include "modules/Telemetry/Sensor/SHT31Sensor.h"
+extern SHT31Sensor sht31Sensor;
+#else
+NullSensor sht31Sensor;
+#endif
+
+#if __has_include(<Adafruit_SHTC3.h>)
+#include "modules/Telemetry/Sensor/SHTC3Sensor.h"
+extern SHTC3Sensor shtc3Sensor;
+#else
+NullSensor shtc3Sensor;
+#endif
+
+#if __has_include(<Adafruit_BMP280.h>)
+#include "modules/Telemetry/Sensor/BMP280Sensor.h"
+extern BMP280Sensor bmp280Sensor;
+#else
+NullSensor bmp280Sensor;
+#endif
+
 #define MAGIC_USB_BATTERY_LEVEL 101
 
 #include "Adafruit_BME680.h"
@@ -68,8 +89,8 @@ extern MeshService *service;
 #define DHT_Pin 5
 #define DHTTYPE DHT11
 
-const static int SLEEP_TIME = 10 * 60 * 1000;      // 5 minuti in millisecondi
-const static int MIN_ACTIVE_TIME = 10 * 60 * 1000; // 0.25 minuti in millisecondi
+const static int SLEEP_TIME = 10 * 60 * 1000;        // 5 minuti in millisecondi
+const static int MIN_ACTIVE_TIME = 0.25 * 60 * 1000; // 0.25 minuti in millisecondi
 const int SAMPLES = 100;
 
 Adafruit_BME680 bme(&Wire1); // I2C
@@ -173,6 +194,27 @@ CustomSensorModule::CustomSensorModule()
 
     } else {
         LOG_INFO("CustomSensorModule: BME280 sensor not found");
+    }
+    if (bmp280Sensor.hasSensor()) {
+        LOG_INFO("CustomSensorModule: BMP280 sensor found");
+        uint32_t result = bmp280Sensor.runOnce();
+        LOG_INFO("CustomSensorModule: BMP280 sensor result: %d", result);
+    } else {
+        LOG_INFO("CustomSensorModule: BMP280 sensor not found");
+    }
+    if (sht31Sensor.hasSensor()) {
+        LOG_INFO("CustomSensorModule: SHT31 sensor found");
+        uint32_t result = sht31Sensor.runOnce();
+        LOG_INFO("CustomSensorModule: SHT31 sensor result: %d", result);
+    } else {
+        LOG_INFO("CustomSensorModule: SHT31 sensor not found");
+    }
+    if (shtc3Sensor.hasSensor()) {
+        LOG_INFO("CustomSensorModule: SHTC3 sensor found");
+        uint32_t result = shtc3Sensor.runOnce();
+        LOG_INFO("CustomSensorModule: SHTC3 sensor result: %d", result);
+    } else {
+        LOG_INFO("CustomSensorModule: SHTC3 sensor not found");
     }
 
     // Inizializza il pin ADC
@@ -369,6 +411,12 @@ void CustomSensorModule::sendEnvironmentTelemetry()
         bme280Sensor.getMetrics(&m);
     } else if (bme680Sensor.hasSensor()) {
         bme680Sensor.getMetrics(&m);
+    } else if (bmp280Sensor.hasSensor()) {
+        bmp280Sensor.getMetrics(&m);
+    } else if (sht31Sensor.hasSensor()) {
+        sht31Sensor.getMetrics(&m);
+    } else if (shtc3Sensor.hasSensor()) {
+        shtc3Sensor.getMetrics(&m);
     } else {
         LOG_ERROR("CustomSensorModule: No BME sensor found");
         return;

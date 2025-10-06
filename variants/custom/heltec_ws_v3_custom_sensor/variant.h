@@ -46,7 +46,18 @@
 #define SX126X_DIO2_AS_RF_SWITCH
 #define SX126X_DIO3_TCXO_VOLTAGE 1.8
 
+// GPS Configuration for Neo-6M
+#define HAS_GPS 1
+#define GPS_UBLOX
+#define GPS_BAUDRATE 115200
+#define GPS_RX_PIN 7 // GPS TX -> ESP32 RX
+#define GPS_TX_PIN 6 // GPS RX -> ESP32 TX
+// #define PIN_GPS_RESET 22 // Neo-6M non ha pin RESET
+// #define GPS_RESET_MODE LOW
+#define GPS_THREAD_INTERVAL 50
+
 #define HAS_32768HZ 1
-#define USE_CUSTOM_SENSOR_MODULE 0
-#define USE_ADS118_MODULE 1
+#define USE_CUSTOM_SENSOR_MODULE 1
+#define USE_ADS118_MODULE 0
+#define USE_TEST_MODULE 0
 // #define HW_SPI1_DEVICE 1

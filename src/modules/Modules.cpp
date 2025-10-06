@@ -114,6 +114,10 @@
 #if USE_ADS118_MODULE
 #include "modules/custom/Ads118Module.h"
 #endif
+
+#if USE_TEST_MODULE
+#include "modules/custom/Test.h"
+#endif
 /**
  * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
  */
@@ -315,5 +319,9 @@ void setupModules()
 
 #if USE_ADS118_MODULE
     ads118Module = new Ads118Module();
+#endif
+
+#if USE_TEST_MODULE
+    testModule = new TestModule();
 #endif
 }

@@ -6,6 +6,11 @@
 #define I2C_SDA SDA_OLED // I2C pins for this board
 #define I2C_SCL SCL_OLED
 
+#define SUBSPIQ 38
+#define SUBSPID 35
+#define SUBSPICLK 36
+#define SUBSPICS0 34
+
 // Enable secondary bus for external periherals
 // #define I2C_SDA1 SDA
 // #define I2C_SCL1 SCL
@@ -45,3 +50,5 @@
 
 #define MESHTASTIC_EXCLUDE_BLUETOOTH 1
 // #define MESHTASTIC_EXCLUDE_WIFI 1
+#define USE_ADS118_MODULE 1
+#define USE_TEST_MODULE 1
