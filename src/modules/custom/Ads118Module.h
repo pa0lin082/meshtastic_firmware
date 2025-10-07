@@ -1,9 +1,9 @@
 #pragma once
 #include "concurrency/OSThread.h"
+#include "graphics/Screen.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include "mesh/generated/meshtastic/portnums.pb.h"
 #include "serialization/JSON.h"
-
 // #include "ADS1118SW.h"
 #include <ADS1118.h>
 #include <SPI.h>
@@ -40,6 +40,7 @@ class Ads118Module : private concurrency::OSThread
     // Configurazione ADS1118
     int _gain;
     int _dataRate;
+    String message;
 
     /** Inizializza i pin SPI */
     bool initSPI();
@@ -55,6 +56,11 @@ class Ads118Module : private concurrency::OSThread
 
     /** Invia telemetria ADS1118 */
     void sendADS1118Telemetry();
+
+#if HAS_SCREEN
+    /** Scrive il valore del ADS1118 sul display */
+    void writeToDisplay();
+#endif // HAS_SCREEN
 };
 
 extern Ads118Module *ads118Module;

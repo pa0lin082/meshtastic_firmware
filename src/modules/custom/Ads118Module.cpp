@@ -1,7 +1,9 @@
 
+#if USE_ADS118_MODULE
 #include "Ads118Module.h"
 #include "DebugConfiguration.h"
 #include "MeshService.h"
+#include "OLEDDisplayFonts.h"
 #include "Router.h"
 #include <Arduino.h>
 #include <SPI.h>
@@ -19,6 +21,7 @@
 // Dichiarazioni delle variabili globali necessarie
 extern Router *router;
 extern MeshService *service;
+extern graphics::Screen *screen;
 
 Ads118Module *ads118Module;
 
@@ -249,6 +252,51 @@ void Ads118Module::sendADS1118Telemetry()
     service->sendToMesh(p, RX_SRC_LOCAL);
 }
 
+#if HAS_SCREEN
+void Ads118Module::writeToDisplay()
+{
+    // Verifica se il display è disponibile
+    if (!screen || !screen->getDisplayDevice()) {
+        LOG_WARN("TestModule: Display non disponibile");
+        return;
+    }
+    // char *bannerMsg = "%d";
+    // snprintf(bannerMsg, sizeof(bannerMsg), " c:%d", counter);
+    // screen->showSimpleBanner(bannerMsg, 1000);
+    // screen->showOverlayBanner(bannerMsg, 1000);
+
+    OLEDDisplay *display = screen->getDisplayDevice();
+
+    // Pulisce il display
+    display->clear();
+
+    // Imposta il colore del testo
+    display->setColor(OLEDDISPLAY_COLOR::WHITE);
+    display->setTextAlignment(TEXT_ALIGN_CENTER);
+
+    // // Scrive il titolo
+    // display->setFont(ArialMT_Plain_16);
+    // display->drawString(display->width() / 2, 10, "Test Counter");
+
+    // // Scrive il numero incrementale
+    display->setFont(ArialMT_Plain_16);
+    // char counterStr[20];
+    // snprintf(counterStr, sizeof(counterStr), "%d", remainingTime);
+    display->drawString(display->width() / 2, 40, message);
+
+    // // Aggiunge informazioni aggiuntive
+    // display->setFont(ArialMT_Plain_10);
+    // char infoStr[50];
+    // snprintf(infoStr, sizeof(infoStr), "Uptime: %d sec", millis() / 1000);
+    // display->drawString(display->width() / 2, 70, infoStr);
+
+    // Aggiorna il display
+    display->display();
+
+    LOG_INFO("TestModule: Scritto contatore %s sul display", message.c_str());
+}
+#endif // HAS_SCREEN
+
 int32_t Ads118Module::runOnce()
 {
     if (!initialized) {
@@ -257,30 +305,37 @@ int32_t Ads118Module::runOnce()
     }
 
     if (ads1118 != NULL) {
-        const ads1118_rate_t rates[] = {ads1118->RATE_8SPS,   ads1118->RATE_16SPS,  ads1118->RATE_32SPS,  ads1118->RATE_64SPS,
-                                        ads1118->RATE_128SPS, ads1118->RATE_250SPS, ads1118->RATE_475SPS, ads1118->RATE_860SPS};
-        for (int rate = 0; rate < 1; rate++) {
-            ads1118->setSamplingRate(rates[rate]);
-            LOG_INFO("Ads118Module: Sampling Rate: %d", rates[rate]);
-            const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
-                                                ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
-            const double temperature = ads1118->getTemperature();
-            LOG_INFO("Ads118Module: Temperature: %f", temperature);
-            for (int i = 0; i < 4; i++) {
-                // ads1118->setInputSelected(inputs[i]);
-                // delay(100);                                                  // Aspetta che la configurazione sia applicata
-                const double milliVolts = ads1118->getMilliVolts(inputs[i]); // Usa sempre il canale esplicito
-                LOG_INFO("Ads118Module: Input AIN_%d, MilliVolts: %f", i, milliVolts);
+        const double milliVolts = ads1118->getMilliVolts(ads1118->AIN_0);
+        LOG_INFO("Ads118Module: MilliVolts: %f", milliVolts);
+        message = String(milliVolts);
 
-                // double milliVoltsNoWait;
-                // const bool success = ads1118->getMilliVoltsNoWait(inputs[i], milliVoltsNoWait);
-                // if (success) {
-                //     LOG_INFO("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
-                // } else {
-                //     LOG_ERROR("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
-                // }
-            }
-        }
+        // const ads1118_rate_t rates[] = {ads1118->RATE_8SPS,   ads1118->RATE_16SPS,  ads1118->RATE_32SPS,  ads1118->RATE_64SPS,
+        //                                 ads1118->RATE_128SPS, ads1118->RATE_250SPS, ads1118->RATE_475SPS,
+        //                                 ads1118->RATE_860SPS};
+        // for (int rate = 0; rate < 1; rate++) {
+        //     ads1118->setSamplingRate(rates[rate]);
+        //     LOG_INFO("Ads118Module: Sampling Rate: %d", rates[rate]);
+        //     const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
+        //                                         ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
+        //     const double temperature = ads1118->getTemperature();
+        //     LOG_INFO("Ads118Module: Temperature: %f", temperature);
+
+        //     for (int i = 0; i < 4; i++) {
+        //         // ads1118->setInputSelected(inputs[i]);
+        //         // delay(100);                                                  // Aspetta che la configurazione sia applicata
+        //         const double milliVolts = ads1118->getMilliVolts(inputs[i]); // Usa sempre il canale esplicito
+        //         LOG_INFO("Ads118Module: Input AIN_%d, MilliVolts: %f", i, milliVolts);
+
+        //         message = String(milliVolts);
+        //         // double milliVoltsNoWait;
+        //         // const bool success = ads1118->getMilliVoltsNoWait(inputs[i], milliVoltsNoWait);
+        //         // if (success) {
+        //         //     LOG_INFO("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
+        //         // } else {
+        //         //     LOG_ERROR("Ads118Module: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
+        //         // }
+        //     }
+        // }
     } else {
         LOG_ERROR("Ads1118Module: ADS1118 non inizializzato");
     }
@@ -292,5 +347,11 @@ int32_t Ads118Module::runOnce()
         LOG_INFO("Ads118Module: Telemetria ADS1118 inviata");
     }
 
-    return 1000; // Controlla ogni 5 secondi
+#if HAS_SCREEN
+    writeToDisplay();
+#endif // HAS_SCREEN
+
+    return 100; // Controlla ogni 5 secondi
 }
+
+#endif // USE_ADS118_MODULE

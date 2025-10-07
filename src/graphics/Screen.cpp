@@ -513,8 +513,10 @@ void Screen::handleSetOn(bool on, FrameCallback einkScreensaver)
 void Screen::setup()
 {
 
-    // === Enable display rendering ===
+// === Enable display rendering ===
+#ifndef MESHTASTIC_EXCLUDE_UI
     useDisplay = true;
+#endif
 
     // === Load saved brightness from UI config ===
     // For OLED displays (SSD1306), default brightness is 255 if not set

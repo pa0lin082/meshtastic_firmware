@@ -3,6 +3,9 @@
 #include "concurrency/OSThread.h"
 
 #include "DHT.h"
+#if HAS_SCREEN
+#include "graphics/Screen.h"
+#endif // HAS_SCREEN
 #include <Adafruit_BME280.h>
 #include <Wire.h>
 /**
@@ -58,6 +61,10 @@ class CustomSensorModule : private concurrency::OSThread
     void sendAdcTelemetry();
     void sendEnvironmentTelemetry();
     void sendDeviceTelemetry();
+
+#if HAS_SCREEN
+    void writeToDisplay();
+#endif // HAS_SCREEN
 };
 
 extern CustomSensorModule *customSensorModule;

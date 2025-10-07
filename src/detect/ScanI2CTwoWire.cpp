@@ -180,12 +180,12 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
             switch (addr.address) {
 
             case SSD1306_OR_DS3231_ADDRESS:
-                if (testDS3231(i2cBus, addr.address)) {
+                type = probeOLED(addr);
+                if (type == ScanI2C::DeviceType::SCREEN_UNKNOWN) {
                     type = RTC_DS3231;
                     logFoundDevice("RTC_DS3231", (uint8_t)addr.address);
                     break;
                 } else {
-                    type = probeOLED(addr);
                     break;
                 }
 

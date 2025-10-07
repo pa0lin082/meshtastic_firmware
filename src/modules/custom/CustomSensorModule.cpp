@@ -79,6 +79,9 @@ DS3231 myRTC(Wire1);
 // Dichiarazioni delle variabili globali necessarie
 extern Router *router;
 extern MeshService *service;
+#if HAS_SCREEN
+extern graphics::Screen *screen;
+#endif // HAS_SCREEN
 
 // Pin ADC1_H6 - questo è tipicamente il pin GPIO 7 su ESP32
 
@@ -89,8 +92,17 @@ extern MeshService *service;
 #define DHT_Pin 5
 #define DHTTYPE DHT11
 
-const static int SLEEP_TIME = 10 * 60 * 1000;        // 5 minuti in millisecondi
-const static int MIN_ACTIVE_TIME = 0.25 * 60 * 1000; // 0.25 minuti in millisecondi
+// Default sleep time se CUSTOM_SENSOR_MODULE_SLEEP_TIME non è definito
+#ifndef CUSTOM_SENSOR_MODULE_SLEEP_TIME
+#define CUSTOM_SENSOR_MODULE_SLEEP_TIME 10 * 60 * 1000; // 2 secondi di default
+#endif
+
+#ifndef CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME
+#define CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME 5;
+#endif
+
+const static int SLEEP_TIME = CUSTOM_SENSOR_MODULE_SLEEP_TIME;           // 5 minuti in millisecondi
+const static int MIN_ACTIVE_TIME = CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME; // 0.25 minuti in millisecondi
 const int SAMPLES = 100;
 
 Adafruit_BME680 bme(&Wire1); // I2C
@@ -490,6 +502,54 @@ meshtastic_Telemetry CustomSensorModule::getDeviceTelemetry()
     return t;
 }
 
+#if HAS_SCREEN
+void CustomSensorModule::writeToDisplay()
+{
+    // Verifica se il display è disponibile
+    if (!screen || !screen->getDisplayDevice()) {
+        LOG_WARN("TestModule: Display non disponibile");
+        return;
+    }
+
+    uint32_t timeSinceFirstExecution = millis() - firstExecutionTime;
+    uint32_t remainingTime = MIN_ACTIVE_TIME - timeSinceFirstExecution;
+    // char *bannerMsg = "%d";
+    // snprintf(bannerMsg, sizeof(bannerMsg), " c:%d", counter);
+    // screen->showSimpleBanner(bannerMsg, 1000);
+    // screen->showOverlayBanner(bannerMsg, 1000);
+
+    OLEDDisplay *display = screen->getDisplayDevice();
+
+    // Pulisce il display
+    display->clear();
+
+    // Imposta il colore del testo
+    display->setColor(OLEDDISPLAY_COLOR::WHITE);
+    display->setTextAlignment(TEXT_ALIGN_CENTER);
+
+    // Scrive il titolo
+    display->setFont(ArialMT_Plain_16);
+    display->drawString(display->width() / 2, 10, "Test Counter");
+
+    // Scrive il numero incrementale
+    display->setFont(ArialMT_Plain_24);
+    char counterStr[20];
+    snprintf(counterStr, sizeof(counterStr), "%d", remainingTime);
+    display->drawString(display->width() / 2, 0, counterStr);
+
+    // Aggiunge informazioni aggiuntive
+    display->setFont(ArialMT_Plain_10);
+    char infoStr[50];
+    snprintf(infoStr, sizeof(infoStr), "Uptime: %d sec", millis() / 1000);
+    display->drawString(display->width() / 2, 40, infoStr);
+
+    // Aggiorna il display
+    display->display();
+
+    LOG_INFO("TestModule: Scritto contatore %d sul display", remainingTime);
+}
+#endif // HAS_SCREEN
+
 int32_t CustomSensorModule::runOnce()
 {
 
@@ -498,7 +558,9 @@ int32_t CustomSensorModule::runOnce()
         firstExecutionTime = millis();
         LOG_INFO("CustomSensorModule: Prima esecuzione MinActiveTime: %dms, SleepTime: %dms", MIN_ACTIVE_TIME, SLEEP_TIME / 1000);
     }
-
+#if HAS_SCREEN
+    writeToDisplay();
+#endif // HAS_SCREEN
     // Verifica se sono passati almeno 30 secondi dalla prima esecuzione
     uint32_t timeSinceFirstExecution = millis() - firstExecutionTime;
 

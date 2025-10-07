@@ -47,7 +47,7 @@
 #define SX126X_DIO3_TCXO_VOLTAGE 1.8
 
 // GPS Configuration for Neo-6M
-#define HAS_GPS 1
+#define HAS_GPS 0
 #define GPS_UBLOX
 #define GPS_BAUDRATE 115200
 #define GPS_RX_PIN 7 // GPS TX -> ESP32 RX
@@ -57,7 +57,12 @@
 #define GPS_THREAD_INTERVAL 50
 
 #define HAS_32768HZ 1
-#define USE_CUSTOM_SENSOR_MODULE 1
-#define USE_ADS118_MODULE 0
+#define USE_CUSTOM_SENSOR_MODULE 0
+#define USE_ADS118_MODULE 1
 #define USE_TEST_MODULE 0
 // #define HW_SPI1_DEVICE 1
+
+#define MESHTASTIC_EXCLUDE_UI 1
+
+#define CUSTOM_SENSOR_MODULE_SLEEP_TIME 10 * 60 * 1000       // 5 minuti in millisecondi
+#define CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME 0.5 * 60 * 1000 // 0.25 minuti in millisecondi
