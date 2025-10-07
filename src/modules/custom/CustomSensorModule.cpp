@@ -237,8 +237,6 @@ CustomSensorModule::CustomSensorModule()
         LOG_ERROR("CustomSensorModule: Errore nell'inizializzazione del pin ADC %d\n", adcPin);
         initialized = false;
     }
-    LOG_INFO("CustomSensorModule: setIntervalFromNow 40*1000");
-    // setIntervalFromNow( 40*1000); // Wait until NodeInfo is sent
 }
 
 CustomSensorModule::~CustomSensorModule()
