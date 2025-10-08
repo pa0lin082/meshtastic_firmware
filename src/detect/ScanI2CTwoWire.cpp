@@ -181,13 +181,14 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
 
             case SSD1306_OR_DS3231_ADDRESS:
                 type = probeOLED(addr);
-                if (type == ScanI2C::DeviceType::SCREEN_UNKNOWN) {
-                    type = RTC_DS3231;
-                    logFoundDevice("RTC_DS3231", (uint8_t)addr.address);
-                    break;
-                } else {
-                    break;
-                }
+                break;
+                // if (type == ScanI2C::DeviceType::SCREEN_UNKNOWN) {
+                //     type = RTC_DS3231;
+                //     logFoundDevice("RTC_DS3231", (uint8_t)addr.address);
+                //     break;
+                // } else {
+                //     break;
+                // }
 
 #ifdef RV3028_RTC
             case RV3028_RTC:

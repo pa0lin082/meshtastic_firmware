@@ -1,6 +1,7 @@
 #pragma once
 #include "../mesh/generated/meshtastic/telemetry.pb.h"
 #include "concurrency/OSThread.h"
+#include "configuration.h"
 
 #include "DHT.h"
 #if HAS_SCREEN
@@ -61,6 +62,7 @@ class CustomSensorModule : private concurrency::OSThread
     void sendAdcTelemetry();
     void sendEnvironmentTelemetry();
     void sendDeviceTelemetry();
+    void sendSensorFoundMesssage();
 
 #if HAS_SCREEN
     void writeToDisplay();

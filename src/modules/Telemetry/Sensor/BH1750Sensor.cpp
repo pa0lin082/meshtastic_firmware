@@ -22,13 +22,13 @@ int32_t BH1750Sensor::runOnce()
 
 void BH1750Sensor::setup()
 {
-    bh1750.setMode(OTH); // sets mode and starts measurement
+    bh1750.setMode(CHM); // sets mode and starts measurement
 }
 
 bool BH1750Sensor::getMetrics(meshtastic_Telemetry *measurement)
 {
 
-    bh1750.setMode(OTH);
+    // bh1750.setMode(OTH);
     delay(140); // wait for measurement to be completed, change for OTL
     measurement->variant.environment_metrics.has_lux = true;
     float result = bh1750.getLux();

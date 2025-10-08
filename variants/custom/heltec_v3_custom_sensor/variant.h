@@ -1,7 +1,6 @@
 #define LED_PIN LED
 
 #define USE_SSD1306 // Heltec_v3 has a SSD1306 display
-#define HAS_SCREEN 1
 
 #define RESET_OLED RST_OLED
 #define I2C_SDA SDA_OLED // I2C pins for this board
@@ -48,6 +47,8 @@
 #define MESHTASTIC_EXCLUDE_BLUETOOTH 1
 #define MESHTASTIC_EXCLUDE_WIFI 1
 
+#define HAS_SCREEN 0
+
 #define MESHTASTIC_EXCLUDE_MQTT 1
 #define MESHTASTIC_EXCLUDE_WEBSERVER 1
 // #define MESHTASTIC_EXCLUDE_SCREEN 1
@@ -64,3 +65,4 @@
 #define MESHTASTIC_EXCLUDE_DROPZONE 1
 
 #define USE_CUSTOM_SENSOR_MODULE 1
+#define CUSTOM_SENSOR_SEND_SENSOR_FOUND_MESSAGE 0 // 5 minuti in millisecondi
