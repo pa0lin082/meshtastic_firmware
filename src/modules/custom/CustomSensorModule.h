@@ -26,9 +26,6 @@ class CustomSensorModule : private concurrency::OSThread
     /** Inizializza il modulo */
     void setup();
 
-    /** Reset del sensore BH1750 */
-    void resetBH1750();
-
     /** Forza un aggiornamento GPS dal modulo hardware */
     bool forceGPSUpdate();
 
@@ -49,11 +46,11 @@ class CustomSensorModule : private concurrency::OSThread
     DHT *dht = nullptr;
     int adcPin = -1;
 
-    /** Inizializza il pin ADC */
-    bool initADC();
+    // /** Inizializza il pin ADC */
+    // bool initADC();
 
     /** Legge il valore dal pin ADC */
-    int readADCValue();
+    // int readADCValue();
 
     meshtastic_Telemetry getDeviceTelemetry();
     meshtastic_Telemetry getLocalStatsTelemetry();

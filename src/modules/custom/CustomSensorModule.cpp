@@ -98,6 +98,10 @@ extern graphics::Screen *screen;
 #define CUSTOM_SENSOR_MODULE_SLEEP_TIME 10 * 60 * 1000; // 2 secondi di default
 #endif
 
+#ifndef CUSTOM_SENSOR_MODULE_WAIT_FIRST_TIME
+#define CUSTOM_SENSOR_MODULE_WAIT_FIRST_TIME 0 * 1000; // 2 secondi di default
+#endif
+
 #ifndef CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME
 #define CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME 5;
 #endif
@@ -337,13 +341,14 @@ CustomSensorModule::CustomSensorModule()
     }
 
     // Inizializza il pin ADC
-    if (initADC()) {
-        LOG_INFO("CustomSensorModule: Pin ADC %d inizializzato con successo\n", adcPin);
-        initialized = true;
-    } else {
-        LOG_ERROR("CustomSensorModule: Errore nell'inizializzazione del pin ADC %d\n", adcPin);
-        initialized = false;
-    }
+    // if (initADC()) {
+    //     LOG_INFO("CustomSensorModule: Pin ADC %d inizializzato con successo\n", adcPin);
+    //     initialized = true;
+    // } else {
+    //     LOG_ERROR("CustomSensorModule: Errore nell'inizializzazione del pin ADC %d\n", adcPin);
+    //     initialized = false;
+    // }
+    initialized = true;
 }
 
 CustomSensorModule::~CustomSensorModule()
@@ -358,31 +363,6 @@ CustomSensorModule::~CustomSensorModule()
 void CustomSensorModule::setup()
 {
     LOG_INFO("CustomSensorModule: setup() => Inizializzazione modulo ADC\n");
-}
-
-bool CustomSensorModule::initADC()
-{
-    // Configura il pin come input analogico
-    pinMode(adcPin, INPUT);
-    // Disabilita eventuali pull-up/pull-down interni
-    // Su ESP32, questo è gestito automaticamente per i pin analogici
-
-    LOG_INFO("CustomSensorModule: Pin %d configurato come input analogico\n", adcPin);
-
-    return true;
-}
-
-int CustomSensorModule::readADCValue()
-{
-    if (!initialized) {
-        LOG_ERROR("CustomSensorModule: Modulo non inizializzato\n");
-        return -1;
-    }
-
-    // Legge il valore analogico dal pin
-    int value = analogReadMilliVolts(adcPin);
-
-    return value;
 }
 
 void CustomSensorModule::sendDht11Telemetry()
@@ -693,7 +673,9 @@ int32_t CustomSensorModule::runOnce()
         LOG_INFO("CustomSensorModule: Prima esecuzione MinActiveTime: %dms, SleepTime: %dms", MIN_ACTIVE_TIME, SLEEP_TIME / 1000);
 
         sendSensorFoundMesssage();
+        return CUSTOM_SENSOR_MODULE_WAIT_FIRST_TIME;
     }
+
 #if HAS_SCREEN
     writeToDisplay();
 #endif // HAS_SCREEN
