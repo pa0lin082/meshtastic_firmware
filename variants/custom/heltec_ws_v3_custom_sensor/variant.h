@@ -58,11 +58,12 @@
 
 #define HAS_32768HZ 1
 #define USE_CUSTOM_SENSOR_MODULE 0
-#define USE_ADS118_MODULE 1
+#define USE_ADS118_MODULE 0
 #define USE_TEST_MODULE 0
 // #define HW_SPI1_DEVICE 1
 
 #define MESHTASTIC_EXCLUDE_UI 1
+#define HAS_SCREEN 0
 
 #define CUSTOM_SENSOR_MODULE_SLEEP_TIME 10 * 60 * 1000       // 5 minuti in millisecondi
 #define CUSTOM_SENSOR_MODULE_MIN_ACTIVE_TIME 0.5 * 60 * 1000 // 0.25 minuti in millisecondi
