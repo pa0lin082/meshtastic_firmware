@@ -1,4 +1,5 @@
 #include "CustomSensorModule.h"
+#include "CustomMetricsSender.h"
 #include "DHT.h"
 #include "DebugConfiguration.h"
 #include "Default.h"
@@ -440,40 +441,22 @@ void CustomSensorModule::sendAdcTelemetry()
     digitalWrite(ADC_Ctrl, HIGH);
 
     if (adcValue >= 0) {
-        meshtastic_MeshPacket *p = router->allocForSending();
-        p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-
-        // Creazione di un oggetto JSON strutturato
-        JSONObject jsonObj;
-        jsonObj["type"] = new JSONValue("custom_metrics");
-
-        // Creazione dell'array di metriche
-        JSONArray metricsArray;
-
-        // Creazione dell'oggetto metrica per voltage
-        JSONObject voltageMetric;
-        voltageMetric["name"] = new JSONValue("voltage_raw_milli_volts");
-        voltageMetric["value"] = new JSONValue(voltageRawMilliVolts);
-        voltageMetric["unit"] = new JSONValue("voltage");
-
-        // Log per verificare la precisione
-        LOG_INFO("CustomSensorModule: Valore float originale: %.6f", voltageRawMilliVolts);
-
-        // Aggiungi la metrica all'array
-        metricsArray.push_back(new JSONValue(voltageMetric));
-
-        // Aggiungi l'array delle metriche all'oggetto principale
-        jsonObj["metrics"] = new JSONValue(metricsArray);
-
-        // Converti l'oggetto JSON in una stringa
-        JSONValue *jsonValue = new JSONValue(jsonObj);
-        std::string jsonData = jsonValue->Stringify();
-        LOG_INFO("CustomSensorModule: JSON generato: %s", jsonData.c_str());
-        delete jsonValue;
-
-        memcpy(p->decoded.payload.bytes, jsonData.c_str(), jsonData.length());
-        p->decoded.payload.size = jsonData.length();
-        service->sendToMesh(p, RX_SRC_LOCAL);
+        // Usa la nuova classe CustomMetricsSender per inviare le metriche
+        CustomMetricsSender sender;
+        
+        // Inizia un nuovo messaggio
+        if (sender.beginMessage()) {
+            // Aggiungi le metriche
+            sender.addMetric("voltage_raw_milli_volts", voltageRawMilliVolts, "voltage");
+            sender.addMetric("voltage_calculated", voltage, "volts");
+            sender.addMetric("adc_raw_value", adcRawValue, "counts");
+            
+            // Log per verificare la precisione
+            LOG_INFO("CustomSensorModule: Valore float originale: %.6f", voltageRawMilliVolts);
+            
+            // Invia il messaggio
+            sender.send(true);  // true = broadcast
+        }
 
         // Stampa il valore letto
         LOG_INFO("--------------------------------");
