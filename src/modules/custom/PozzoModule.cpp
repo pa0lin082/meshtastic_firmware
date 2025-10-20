@@ -50,6 +50,9 @@ bool PozzoModule::initADS1115()
     }
 
 
+    // per il 3.3v
+    ads->setGain(GAIN_ONE);
+
     // Test di comunicazione per verificare se il sensore risponde
     if (testADS1115Connection()) {
         LOG_INFO("PozzoModule: Test di connessione ADS1118 completato con successo");
@@ -259,8 +262,8 @@ int32_t PozzoModule::runOnce()
 
       for (int channel = 0; channel < 1; channel++) {
         const int16_t adcValue = ads->readADC_SingleEnded(channel);
-        // const float milliVolts = 
-        LOG_INFO("PozzoModule: canale %d, MilliVolts: %d", channel, adcValue);
+        const float milliVolts = ads->computeVolts(adcValue);
+        LOG_INFO("PozzoModule: canale %d, adcValue: %d, milliVolts:%f ", channel, adcValue, milliVolts);
         // inputs[channel] = milliVolts;
       }
 
