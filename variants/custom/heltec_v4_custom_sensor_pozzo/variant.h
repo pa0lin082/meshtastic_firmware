@@ -6,8 +6,8 @@
 #define I2C_SDA 17 // I2C pins for this board
 #define I2C_SCL 18
 
-#define I2C_SDA1 45
-#define I2C_SCL1 15
+#define I2C_SCL1 47
+#define I2C_SDA1 48
 
 #define VEXT_ENABLE 36 // active low, powers the oled display and the lora antenna boost
 #define BUTTON_PIN 0
@@ -59,3 +59,5 @@
 #define GPS_TX_PIN (38) // This is for bits going TOWARDS the CPU
 #define GPS_RX_PIN (39) // This is for bits going TOWARDS the GPS
 #define GPS_THREAD_INTERVAL 50
+
+#define USE_POZZO_MODULE 1

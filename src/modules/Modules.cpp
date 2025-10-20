@@ -118,6 +118,10 @@
 #if USE_TEST_MODULE
 #include "modules/custom/Test.h"
 #endif
+
+#if USE_POZZO_MODULE
+#include "modules/custom/PozzoModule.h"
+#endif
 /**
  * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
  */
@@ -323,5 +327,9 @@ void setupModules()
 
 #if USE_TEST_MODULE
     testModule = new TestModule();
+#endif
+
+#if USE_POZZO_MODULE
+    pozzoModule = new PozzoModule();
 #endif
 }

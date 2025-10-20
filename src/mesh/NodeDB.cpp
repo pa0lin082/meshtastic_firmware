@@ -780,6 +780,7 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.has_serial = true;
     moduleConfig.has_store_forward = true;
     moduleConfig.has_telemetry = true;
+    moduleConfig.telemetry.device_telemetry_enabled = true; // Enable device telemetry to mesh by default
     moduleConfig.has_external_notification = true;
 #if defined(PIN_BUZZER)
     moduleConfig.external_notification.enabled = true;
@@ -1340,6 +1341,13 @@ void NodeDB::loadFromDisk()
         if (moduleConfig.paxcounter.paxcounter_update_interval == 900)
             moduleConfig.paxcounter.paxcounter_update_interval = 0;
 
+        saveToDisk(SEGMENT_MODULECONFIG);
+    }
+
+    // Migration: Enable device_telemetry_enabled by default for existing configurations
+    if (!moduleConfig.telemetry.device_telemetry_enabled) {
+        LOG_INFO("Enabling device telemetry to mesh for existing configuration");
+        moduleConfig.telemetry.device_telemetry_enabled = true;
         saveToDisk(SEGMENT_MODULECONFIG);
     }
 #if ARCH_PORTDUINO
