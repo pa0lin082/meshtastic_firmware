@@ -5,6 +5,7 @@
 #include "mesh/generated/meshtastic/portnums.pb.h"
 #include "serialization/JSON.h"
 #include <Adafruit_ADS1X15.h>
+#include <jm_LCM2004A_I2C.h>
 
 /**
  * Modulo per la gestione dell'ADS1118 (ADC ad alta precisione)
@@ -27,7 +28,7 @@ class PozzoModule : private concurrency::OSThread
     virtual int32_t runOnce() override;
 
     Adafruit_ADS1115 *ads = NULL;
-
+    jm_LCM2004A_I2C *lcd = NULL; // addr: 0x27, Wire1
   private:
     bool initialized;
     uint32_t lastSentToMesh;
@@ -41,6 +42,8 @@ class PozzoModule : private concurrency::OSThread
     /** Inizializza l'ADS1118 */
     bool initADS1115();
 
+    /** Inizializza il display */
+    bool initDisplay();
 
     /** Test di comunicazione ADS1118 */
     bool testADS1115Connection();

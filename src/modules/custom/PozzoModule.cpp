@@ -1,4 +1,5 @@
 // #if USE_POZZO_MODULE
+// #define __PROG__ "jm_LCM2004A_I2C_PrintScreen"
 #include "main.h"
 #include "PozzoModule.h"
 #include "DebugConfiguration.h"
@@ -8,7 +9,7 @@
 #include <Arduino.h>
 
 #include <Adafruit_ADS1X15.h>
-
+#include <jm_LCM2004A_I2C.h>
 
 
 // Dichiarazioni delle variabili globali necessarie
@@ -17,7 +18,6 @@ extern MeshService *service;
 extern graphics::Screen *screen;
 
 PozzoModule *pozzoModule;
-
 
 PozzoModule::PozzoModule()
     : concurrency::OSThread("PozzoModule"), initialized(false), lastSentToMesh(0), _gain(1), _dataRate(4)
@@ -63,6 +63,22 @@ bool PozzoModule::initADS1115()
     }
 }
 
+bool PozzoModule::initDisplay()
+{
+    lcd = new jm_LCM2004A_I2C(0x27, Wire1);
+    if (!lcd->begin()) {
+        LOG_ERROR("PozzoModule: Errore nell'inizializzazione del display");
+        return false;
+    }
+
+    lcd->clear();
+    lcd->setCursor(0, 0);
+    lcd->print("PozzoModule");
+    lcd->setCursor(0, 1);
+    lcd->print("Initialized");
+    lcd->display();
+    return true;
+}
 
 
 bool PozzoModule::testADS1115Connection()
@@ -241,10 +257,13 @@ int32_t PozzoModule::runOnce()
 {
     // Inizializza l'ADS1115 al primo ciclo (dopo che Wire1 è stato configurato)
     if (!initialized && ads == NULL) {
-        LOG_INFO("PozzoModule: Primo ciclo - inizializzazione ADS1115...");
-        if (initADS1115()) {
+      LOG_INFO("PozzoModule: Primo ciclo - inizializzazione ADS1115...");
+
+      
+        if (initADS1115() & initDisplay()) {
             LOG_INFO("PozzoModule: ADS1115 inizializzato con successo");
             initialized = true;
+            return 2000;
         } else {
             LOG_ERROR("PozzoModule: Errore nell'inizializzazione dell'ADS1115, riprovo tra 5 secondi");
             return 5000; // Riprova dopo 5 secondi
@@ -256,6 +275,8 @@ int32_t PozzoModule::runOnce()
         return 5000;
     }
 
+
+
     if (ads != NULL) {
 
     //   const int16_t inputs[] = {adc0, adc1, adc2, adc3};
@@ -264,6 +285,29 @@ int32_t PozzoModule::runOnce()
         const int16_t adcValue = ads->readADC_SingleEnded(channel);
         const float milliVolts = ads->computeVolts(adcValue);
         LOG_INFO("PozzoModule: canale %d, adcValue: %d, milliVolts:%f ", channel, adcValue, milliVolts);
+
+        const float millimeters = 15000.0f / 3.3f * milliVolts;
+        
+        lcd->clear();
+        lcd->setCursor(0, 0);
+        lcd->print("Pozzo");
+
+        lcd->setCursor(0, 1);
+        lcd->print("mV:");
+        lcd->setCursor(5, 1);
+        lcd->print(String(milliVolts));
+
+        lcd->setCursor(0, 2);
+        lcd->print("mm:");
+        lcd->setCursor(6, 2);
+        lcd->print(String(millimeters));
+
+        lcd->setCursor(0, 3);
+        lcd->print("mt:");
+        lcd->setCursor(6, 3);
+        lcd->print(String(millimeters/1000.0f));
+
+        // lcd->display();
         // inputs[channel] = milliVolts;
       }
 
