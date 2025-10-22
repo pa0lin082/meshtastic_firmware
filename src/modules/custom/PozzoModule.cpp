@@ -11,6 +11,17 @@
 #include <Adafruit_ADS1X15.h>
 #include <jm_LCM2004A_I2C.h>
 
+// Costanti per il display LCD 20x4
+static const uint8_t LCD_COLS = 20;
+static const uint8_t LCD_ROWS = 4;
+
+// Buffer del display per ottimizzare gli aggiornamenti
+static char displayBuffer[LCD_ROWS][LCD_COLS + 1];
+
+static const uint8_t WATER_LEVEL_SENSOR_CHANNEL = 0;
+static const float WATER_LEVEL_SCALE_FACTOR = 15000.0f / 3.3f;
+static const int WATER_LEVEL_READ_SAMPLES = 5;
+
 
 // Dichiarazioni delle variabili globali necessarie
 extern Router *router;
@@ -23,6 +34,7 @@ PozzoModule::PozzoModule()
     : concurrency::OSThread("PozzoModule"), initialized(false), lastSentToMesh(0), _gain(1), _dataRate(4)
 {
     LOG_INFO("PozzoModule: Costruttore chiamato - l'inizializzazione ADS1115 avverrà in runOnce()");
+    initDisplayBuffer();
 }
 
 PozzoModule::~PozzoModule()
@@ -68,16 +80,150 @@ bool PozzoModule::initDisplay()
     lcd = new jm_LCM2004A_I2C(0x27, Wire1);
     if (!lcd->begin()) {
         LOG_ERROR("PozzoModule: Errore nell'inizializzazione del display");
+        delete lcd;
+        lcd = NULL;
         return false;
     }
 
+    // Pulisce il display fisico una sola volta all'inizializzazione
     lcd->clear();
-    lcd->setCursor(0, 0);
-    lcd->print("PozzoModule");
-    lcd->setCursor(0, 1);
-    lcd->print("Initialized");
-    lcd->display();
+    
+    // Usa il metodo ottimizzato per scrivere i messaggi iniziali
+    _writeToDisplay(0, 0, "PozzoModule", true);
+    _writeToDisplay(0, 1, "Initialized", true);
+    
     return true;
+}
+
+void PozzoModule::initDisplayBuffer()
+{
+    // Inizializza il buffer con spazi
+    for (uint8_t row = 0; row < LCD_ROWS; row++) {
+        for (uint8_t col = 0; col < LCD_COLS; col++) {
+            displayBuffer[row][col] = ' ';
+        }
+        displayBuffer[row][LCD_COLS] = '\0'; // Null terminator
+    }
+    LOG_DEBUG("PozzoModule: Buffer display inizializzato");
+}
+
+/**
+ * Metodo ottimizzato per scrivere sul display LCD 20x4
+ * 
+ * Funzionamento:
+ * - Mantiene un buffer interno (displayBuffer) che replica il contenuto del display
+ * - Confronta il nuovo testo con il buffer e crea una maschera delle differenze
+ * - Identifica i blocchi contigui di caratteri cambiati (es: "ABCDEFGHIL" vs "ABCXXFGXXL" -> "0001100110")
+ * - Invia al display via I2C SOLO i blocchi di caratteri che sono effettivamente cambiati
+ * 
+ * Vantaggi:
+ * - Riduce drasticamente il traffico I2C (lento)
+ * - Minimizza le chiamate a setCursor() raggruppando caratteri contigui
+ * - Elimina la necessità di chiamare lcd->clear() (operazione molto lenta)
+ * - Evita il flickering del display
+ * - Migliora la reattività generale del sistema
+ * 
+ * Esempio:
+ *   Buffer: "Temp: 23.5C"
+ *   Nuovo:  "Temp: 24.7C"
+ *   Maschera: "00000011110" -> aggiorna solo "24.7" in un'unica operazione
+ * 
+ * @param col Colonna di partenza (0-19)
+ * @param row Riga (0-3)
+ * @param text Testo da scrivere (verrà troncato se troppo lungo)
+ * @param forceUpdate Se true, aggiorna anche se il buffer è uguale (utile all'inizializzazione)
+ */
+void PozzoModule::_writeToDisplay(uint8_t col, uint8_t row, const char *text, bool forceUpdate)
+{
+    if (lcd == NULL) {
+        LOG_ERROR("PozzoModule: Display non inizializzato");
+        return;
+    }
+
+    if (row >= LCD_ROWS || col >= LCD_COLS) {
+        LOG_ERROR("PozzoModule: Posizione fuori dai limiti (col:%d, row:%d)", col, row);
+        return;
+    }
+
+    if (text == NULL) {
+        return;
+    }
+
+    // Calcola la lunghezza effettiva da scrivere (limitata alla larghezza del display)
+    uint8_t maxLen = LCD_COLS - col;
+    uint8_t textLen = strlen(text);
+    if (textLen > maxLen) {
+        textLen = maxLen;
+    }
+
+    // Crea una maschera delle differenze (1 = cambiato, 0 = uguale)
+    bool changeMask[LCD_COLS] = {false};
+    bool hasChanges = false;
+    
+    for (uint8_t i = 0; i < textLen; i++) {
+        uint8_t currentCol = col + i;
+        if (forceUpdate || displayBuffer[row][currentCol] != text[i]) {
+            changeMask[i] = true;
+            hasChanges = true;
+            displayBuffer[row][currentCol] = text[i];
+        }
+    }
+
+    // Se ci sono cambiamenti, identifica i blocchi contigui e aggiornali
+    if (hasChanges) {
+        uint8_t i = 0;
+        while (i < textLen) {
+            // Cerca l'inizio del prossimo blocco di cambiamenti
+            while (i < textLen && !changeMask[i]) {
+                i++;
+            }
+            
+            if (i < textLen) {
+                // Trovato l'inizio di un blocco
+                uint8_t blockStart = i;
+                
+                // Trova la fine del blocco
+                while (i < textLen && changeMask[i]) {
+                    i++;
+                }
+                uint8_t blockEnd = i - 1;
+                
+                // Aggiorna il blocco sul display
+                lcd->setCursor(col + blockStart, row);
+                for (uint8_t j = blockStart; j <= blockEnd; j++) {
+                    lcd->print(displayBuffer[row][col + j]);
+                }
+                
+                LOG_DEBUG("PozzoModule: Aggiornato blocco da col %d a %d, row %d", 
+                         col + blockStart, col + blockEnd, row);
+            }
+        }
+    }
+
+    // Se il testo è più corto della riga precedente, riempi con spazi
+    uint8_t firstSpace = maxLen;
+    uint8_t lastSpace = 0;
+    bool needsSpaces = false;
+    
+    for (uint8_t i = textLen; i < maxLen; i++) {
+        uint8_t currentCol = col + i;
+        if (displayBuffer[row][currentCol] != ' ') {
+            if (!needsSpaces) {
+                firstSpace = i;
+                needsSpaces = true;
+            }
+            lastSpace = i;
+            displayBuffer[row][currentCol] = ' ';
+        }
+    }
+    
+    // Se ci sono spazi da aggiungere, aggiornali come un blocco
+    if (needsSpaces) {
+        lcd->setCursor(col + firstSpace, row);
+        for (uint8_t i = firstSpace; i <= lastSpace; i++) {
+            lcd->print(' ');
+        }
+    }
 }
 
 
@@ -209,49 +355,87 @@ void PozzoModule::sendADS1118Telemetry()
 }
 
 #if HAS_SCREEN
-void PozzoModule::writeToDisplay() {
+void PozzoModule::writeToDisplay(bool firstUpdate) {
+  if (lcd == NULL) {
+    LOG_ERROR("PozzoModule: Display non inizializzato");
+    return;
+  }
+
+  _writeToDisplay(0, 0, "Pozzo", firstUpdate);
+        
+  // Prepara le stringhe con i valori
+  char mvStr[16];
+  snprintf(mvStr, sizeof(mvStr), "mV: %.2f", waterLevelMilliVolts);
+  _writeToDisplay(0, 1, mvStr, firstUpdate);
+  
+  char mmStr[16];
+  snprintf(mmStr, sizeof(mmStr), "mm: %.1f", waterLevelMillimeters);
+  _writeToDisplay(0, 2, mmStr, firstUpdate);
+  
+  char mtStr[16];
+  snprintf(mtStr, sizeof(mtStr), "mt: %.3f", waterLevelMillimeters/1000.0f);
+  _writeToDisplay(0, 3, mtStr, firstUpdate);
+
+
   return;
-    // Verifica se il display è disponibile
-    if (!screen || !screen->getDisplayDevice()) {
-        LOG_WARN("TestModule: Display non disponibile");
-        return;
-    }
-    // char *bannerMsg = "%d";
-    // snprintf(bannerMsg, sizeof(bannerMsg), " c:%d", counter);
-    // screen->showSimpleBanner(bannerMsg, 1000);
-    // screen->showOverlayBanner(bannerMsg, 1000);
+    // // Verifica se il display è disponibile
+    // if (!screen || !screen->getDisplayDevice()) {
+    //     LOG_WARN("TestModule: Display non disponibile");
+    //     return;
+    // }
+    // // char *bannerMsg = "%d";
+    // // snprintf(bannerMsg, sizeof(bannerMsg), " c:%d", counter);
+    // // screen->showSimpleBanner(bannerMsg, 1000);
+    // // screen->showOverlayBanner(bannerMsg, 1000);
 
-    OLEDDisplay *display = screen->getDisplayDevice();
+    // OLEDDisplay *display = screen->getDisplayDevice();
 
-    // Pulisce il display
-    display->clear();
+    // // Pulisce il display
+    // display->clear();
 
-    // Imposta il colore del testo
-    display->setColor(OLEDDISPLAY_COLOR::WHITE);
-    display->setTextAlignment(TEXT_ALIGN_CENTER);
+    // // Imposta il colore del testo
+    // display->setColor(OLEDDISPLAY_COLOR::WHITE);
+    // display->setTextAlignment(TEXT_ALIGN_CENTER);
 
-    // // Scrive il titolo
+    // // // Scrive il titolo
+    // // display->setFont(ArialMT_Plain_16);
+    // // display->drawString(display->width() / 2, 10, "Test Counter");
+
+    // // // Scrive il numero incrementale
     // display->setFont(ArialMT_Plain_16);
-    // display->drawString(display->width() / 2, 10, "Test Counter");
+    // // char counterStr[20];
+    // // snprintf(counterStr, sizeof(counterStr), "%d", remainingTime);
+    // display->drawString(display->width() / 2, 40, message);
 
-    // // Scrive il numero incrementale
-    display->setFont(ArialMT_Plain_16);
-    // char counterStr[20];
-    // snprintf(counterStr, sizeof(counterStr), "%d", remainingTime);
-    display->drawString(display->width() / 2, 40, message);
+    // // // Aggiunge informazioni aggiuntive
+    // // display->setFont(ArialMT_Plain_10);
+    // // char infoStr[50];
+    // // snprintf(infoStr, sizeof(infoStr), "Uptime: %d sec", millis() / 1000);
+    // // display->drawString(display->width() / 2, 70, infoStr);
 
-    // // Aggiunge informazioni aggiuntive
-    // display->setFont(ArialMT_Plain_10);
-    // char infoStr[50];
-    // snprintf(infoStr, sizeof(infoStr), "Uptime: %d sec", millis() / 1000);
-    // display->drawString(display->width() / 2, 70, infoStr);
+    // // Aggiorna il display
+    // display->display();
 
-    // Aggiorna il display
-    display->display();
-
-    LOG_INFO("TestModule: Scritto contatore %s sul display", message.c_str());
+    // LOG_INFO("TestModule: Scritto contatore %s sul display", message.c_str());
 }
 #endif // HAS_SCREEN
+
+void PozzoModule::readWaterLevel() {
+  if (ads == NULL) {
+    LOG_ERROR("PozzoModule: ADS1115 non inizializzato");
+    return;
+  }
+  int32_t waterLevelAdcValueSum = 0;  // Usa int32_t per evitare overflow con somme multiple
+  for (int i = 0; i < WATER_LEVEL_READ_SAMPLES; i++) {
+    waterLevelAdcValueSum += ads->readADC_SingleEnded(WATER_LEVEL_SENSOR_CHANNEL);
+  }
+  waterLevelAdcValue = waterLevelAdcValueSum / WATER_LEVEL_READ_SAMPLES;
+  waterLevelMilliVolts = ads->computeVolts(waterLevelAdcValue);
+  waterLevelMillimeters = WATER_LEVEL_SCALE_FACTOR * waterLevelMilliVolts;
+
+LOG_INFO("PozzoModule: waterLevelAdcValue: %d, waterLevelMilliVolts: %f, waterLevelMillimeters: %f ", waterLevelAdcValue, waterLevelMilliVolts, waterLevelMillimeters);
+
+}
 
 int32_t PozzoModule::runOnce()
 {
@@ -275,72 +459,72 @@ int32_t PozzoModule::runOnce()
         return 5000;
     }
 
+    readWaterLevel();
 
-
-    if (ads != NULL) {
-
-    //   const int16_t inputs[] = {adc0, adc1, adc2, adc3};
-
-      for (int channel = 0; channel < 1; channel++) {
-        const int16_t adcValue = ads->readADC_SingleEnded(channel);
-        const float milliVolts = ads->computeVolts(adcValue);
-        LOG_INFO("PozzoModule: canale %d, adcValue: %d, milliVolts:%f ", channel, adcValue, milliVolts);
-
-        const float millimeters = 15000.0f / 3.3f * milliVolts;
+    // if (ads != NULL) {
         
-        lcd->clear();
-        lcd->setCursor(0, 0);
-        lcd->print("Pozzo");
 
-        lcd->setCursor(0, 1);
-        lcd->print("mV:");
-        lcd->setCursor(5, 1);
-        lcd->print(String(milliVolts));
 
-        lcd->setCursor(0, 2);
-        lcd->print("mm:");
-        lcd->setCursor(6, 2);
-        lcd->print(String(millimeters));
+    //   for (int channel = 0; channel < 1; channel++) {
+    //     const int16_t adcValue = ads->readADC_SingleEnded(channel);
+    //     const float milliVolts = ads->computeVolts(adcValue);
+    //     LOG_INFO("PozzoModule: canale %d, adcValue: %d, milliVolts:%f ", channel, adcValue, milliVolts);
 
-        lcd->setCursor(0, 3);
-        lcd->print("mt:");
-        lcd->setCursor(6, 3);
-        lcd->print(String(millimeters/1000.0f));
+    //     const float millimeters = 15000.0f / 3.3f * milliVolts;
+        
+    //     // Usa il metodo ottimizzato per aggiornare solo i caratteri cambiati
+    //     // Nota: la prima volta forza l'aggiornamento, poi aggiorna solo i cambiamenti
+    //     static bool firstUpdate = true;
+        
+    //     _writeToDisplay(0, 0, "Pozzo", firstUpdate);
+        
+    //     // Prepara le stringhe con i valori
+    //     char mvStr[16];
+    //     snprintf(mvStr, sizeof(mvStr), "mV: %.2f", milliVolts);
+    //     _writeToDisplay(0, 1, mvStr, firstUpdate);
+        
+    //     char mmStr[16];
+    //     snprintf(mmStr, sizeof(mmStr), "mm: %.1f", millimeters);
+    //     _writeToDisplay(0, 2, mmStr, firstUpdate);
+        
+    //     char mtStr[16];
+    //     snprintf(mtStr, sizeof(mtStr), "mt: %.3f", millimeters/1000.0f);
+    //     _writeToDisplay(0, 3, mtStr, firstUpdate);
+        
+    //     firstUpdate = false;
+    //     // inputs[channel] = milliVolts;
+    //   }
 
-        // lcd->display();
-        // inputs[channel] = milliVolts;
-      }
+    //     // const ads1118_rate_t rates[] = {ads1118->RATE_8SPS,   ads1118->RATE_16SPS,  ads1118->RATE_32SPS,  ads1118->RATE_64SPS,
+    //     //                                 ads1118->RATE_128SPS, ads1118->RATE_250SPS, ads1118->RATE_475SPS,
+    //     //                                 ads1118->RATE_860SPS};
+    //     // for (int rate = 0; rate < 1; rate++) {
+    //     //     ads1118->setSamplingRate(rates[rate]);
+    //     //     LOG_INFO("PozzoModule: Sampling Rate: %d", rates[rate]);
+    //     //     const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
+    //     //                                         ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
+    //     //     const double temperature = ads1118->getTemperature();
+    //     //     LOG_INFO("PozzoModule: Temperature: %f", temperature);
 
-        // const ads1118_rate_t rates[] = {ads1118->RATE_8SPS,   ads1118->RATE_16SPS,  ads1118->RATE_32SPS,  ads1118->RATE_64SPS,
-        //                                 ads1118->RATE_128SPS, ads1118->RATE_250SPS, ads1118->RATE_475SPS,
-        //                                 ads1118->RATE_860SPS};
-        // for (int rate = 0; rate < 1; rate++) {
-        //     ads1118->setSamplingRate(rates[rate]);
-        //     LOG_INFO("PozzoModule: Sampling Rate: %d", rates[rate]);
-        //     const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2,
-        //                                         ads1118->AIN_3}; // AIN_0, AIN_1, AIN_2, AIN_3
-        //     const double temperature = ads1118->getTemperature();
-        //     LOG_INFO("PozzoModule: Temperature: %f", temperature);
+    //     //     for (int i = 0; i < 4; i++) {
+    //     //         // ads1118->setInputSelected(inputs[i]);
+    //     //         // delay(100);                                                  // Aspetta che la configurazione sia applicata
+    //     //         const double milliVolts = ads1118->getMilliVolts(inputs[i]); // Usa sempre il canale esplicito
+    //     //         LOG_INFO("PozzoModule: Input AIN_%d, MilliVolts: %f", i, milliVolts);
 
-        //     for (int i = 0; i < 4; i++) {
-        //         // ads1118->setInputSelected(inputs[i]);
-        //         // delay(100);                                                  // Aspetta che la configurazione sia applicata
-        //         const double milliVolts = ads1118->getMilliVolts(inputs[i]); // Usa sempre il canale esplicito
-        //         LOG_INFO("PozzoModule: Input AIN_%d, MilliVolts: %f", i, milliVolts);
-
-        //         message = String(milliVolts);
-        //         // double milliVoltsNoWait;
-        //         // const bool success = ads1118->getMilliVoltsNoWait(inputs[i], milliVoltsNoWait);
-        //         // if (success) {
-        //         //     LOG_INFO("PozzoModule: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
-        //         // } else {
-        //         //     LOG_ERROR("PozzoModule: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
-        //         // }
-        //     }
-        // }
-    } else {
-        LOG_ERROR("Ads1118Module: ADS1118 non inizializzato");
-    }
+    //     //         message = String(milliVolts);
+    //     //         // double milliVoltsNoWait;
+    //     //         // const bool success = ads1118->getMilliVoltsNoWait(inputs[i], milliVoltsNoWait);
+    //     //         // if (success) {
+    //     //         //     LOG_INFO("PozzoModule: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
+    //     //         // } else {
+    //     //         //     LOG_ERROR("PozzoModule: Input AIN_%d, MilliVoltsNoWait: %f", i, milliVoltsNoWait);
+    //     //         // }
+    //     //     }
+    //     // }
+    // } else {
+    //     LOG_ERROR("Ads1118Module: ADS1118 non inizializzato");
+    // }
 
     // Invia telemetria ogni 30 secondi
     if (lastSentToMesh == 0 || (millis() - lastSentToMesh) >= 30000) {

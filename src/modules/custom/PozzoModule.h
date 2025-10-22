@@ -32,7 +32,10 @@ class PozzoModule : private concurrency::OSThread
   private:
     bool initialized;
     uint32_t lastSentToMesh;
-
+    int16_t waterLevelAdcValue = 0;
+    float waterLevelMilliVolts = 0.0f;
+    float waterLevelMillimeters = 0.0f;
+    
 
     // Configurazione ADS1118
     int _gain;
@@ -51,9 +54,17 @@ class PozzoModule : private concurrency::OSThread
     /** Invia telemetria ADS1118 */
     void sendADS1118Telemetry();
 
+    void readWaterLevel();
+
+    /** Inizializza il buffer del display con spazi */
+    void initDisplayBuffer();
+
+    /** Scrive una stringa nel buffer del display e aggiorna solo i caratteri cambiati */
+    void _writeToDisplay(uint8_t col, uint8_t row, const char *text, bool forceUpdate = false);
+
 #if HAS_SCREEN
     /** Scrive il valore del ADS1118 sul display */
-    void writeToDisplay();
+    void writeToDisplay(bool firstUpdate=false);
 #endif // HAS_SCREEN
 };
 
