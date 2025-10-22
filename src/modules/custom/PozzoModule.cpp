@@ -19,8 +19,26 @@ static const uint8_t LCD_ROWS = 4;
 static char displayBuffer[LCD_ROWS][LCD_COLS + 1];
 
 static const uint8_t WATER_LEVEL_SENSOR_CHANNEL = 0;
+static const uint8_t ACS712_CURRENT_SENSOR_CHANNEL = 1;  // Canale 1 per ACS712
+
 static const float WATER_LEVEL_SCALE_FACTOR = 15000.0f / 3.3f;
-static const int WATER_LEVEL_READ_SAMPLES = 5;
+
+// Configurazione ACS712-30A
+// L'ACS712 ha diverse versioni con sensibilità diverse:
+// - ACS712-05A: 185 mV/A (massimo 5A)
+// - ACS712-20A: 100 mV/A (massimo 20A)
+// - ACS712-30A: 66 mV/A (massimo 30A) ← MODELLO IN USO
+// L'uscita è Vcc/2 (1.65V @ 3.3V) a corrente zero, aumenta/diminuisce con la corrente
+static const float ACS712_ZERO_CURRENT_VOLTAGE = 1.65f;  // Vcc/2 per alimentazione 3.3V
+static const float ACS712_SENSITIVITY = 0.066f;  // 66 mV/A per modello 30A
+
+// Configurazione campionamento
+// NOTA: Il data rate dell'ADS1115 è GLOBALE per tutti i canali
+// Scegliere un compromesso in base al sensore più critico:
+// - Per DC (livello acqua, corrente DC): 8-16 SPS è ottimale
+// - Per AC 50Hz: serve minimo 128-250 SPS
+static const int WATER_LEVEL_READ_SAMPLES = 1;  // Con 8 SPS, ogni lettura è già molto stabile
+static const int CURRENT_READ_SAMPLES = 1;       // Stessa logica
 
 
 // Dichiarazioni delle variabili globali necessarie
@@ -62,8 +80,21 @@ bool PozzoModule::initADS1115()
     }
 
 
-    // per il 3.3v
-    ads->setGain(GAIN_ONE);
+    // Configura il gain per il range 3.3V
+    ads->setGain(GAIN_ONE);  // ±4.096V
+    
+    // Configura il data rate (GLOBALE per tutti i canali!)
+    // IMPORTANTE: Il data rate si applica a TUTTI i canali dell'ADS1115
+    // 
+    // Sensori collegati:
+    // - Canale 0: Livello acqua (segnale lento DC)
+    // - Canale 1: ACS712 AC per pompa acqua
+    // 
+    // L'ACS712 in AC ha già un circuito interno che filtra la corrente alternata
+    // e fornisce un'uscita DC proporzionale al valore RMS. Non serve campionare
+    // la forma d'onda a 50Hz, quindi 8 SPS è perfetto per entrambi i sensori!
+    ads->setDataRate(RATE_ADS1115_8SPS);  // 8 campioni/sec = 125ms per lettura
+    LOG_INFO("PozzoModule: Data rate impostato a 8 SPS (ottimale per livello acqua + ACS712 AC RMS)");
 
     // Test di comunicazione per verificare se il sensore risponde
     if (testADS1115Connection()) {
@@ -365,11 +396,11 @@ void PozzoModule::writeToDisplay(bool firstUpdate) {
         
   // Prepara le stringhe con i valori
   char mvStr[16];
-  snprintf(mvStr, sizeof(mvStr), "mV: %.2f", waterLevelMilliVolts);
+  snprintf(mvStr, sizeof(mvStr), "mV: %.3f", waterLevelMilliVolts);
   _writeToDisplay(0, 1, mvStr, firstUpdate);
   
   char mmStr[16];
-  snprintf(mmStr, sizeof(mmStr), "mm: %.1f", waterLevelMillimeters);
+  snprintf(mmStr, sizeof(mmStr), "mm: %.0f", waterLevelMillimeters);
   _writeToDisplay(0, 2, mmStr, firstUpdate);
   
   char mtStr[16];
@@ -433,7 +464,7 @@ void PozzoModule::readWaterLevel() {
   waterLevelMilliVolts = ads->computeVolts(waterLevelAdcValue);
   waterLevelMillimeters = WATER_LEVEL_SCALE_FACTOR * waterLevelMilliVolts;
 
-LOG_INFO("PozzoModule: waterLevelAdcValue: %d, waterLevelMilliVolts: %f, waterLevelMillimeters: %f ", waterLevelAdcValue, waterLevelMilliVolts, waterLevelMillimeters);
+// LOG_INFO("PozzoModule: waterLevelAdcValue: %d, waterLevelMilliVolts: %.2f, waterLevelMillimeters: %.0f ", waterLevelAdcValue, (double)waterLevelMilliVolts, (double)waterLevelMillimeters);
 
 }
 
