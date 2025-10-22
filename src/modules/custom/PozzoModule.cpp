@@ -11,6 +11,9 @@
 #include <Adafruit_ADS1X15.h>
 #include <jm_LCM2004A_I2C.h>
 
+
+#define PIN_RELAY_PUMP 45
+
 // Costanti per il display LCD 20x4
 static const uint8_t LCD_COLS = 20;
 static const uint8_t LCD_ROWS = 4;
@@ -53,6 +56,8 @@ PozzoModule::PozzoModule()
 {
     LOG_INFO("PozzoModule: Costruttore chiamato - l'inizializzazione ADS1115 avverrà in runOnce()");
     initDisplayBuffer();
+    pinMode(PIN_RELAY_PUMP, OUTPUT);
+    digitalWrite(PIN_RELAY_PUMP, LOW);
 }
 
 PozzoModule::~PozzoModule()
@@ -491,6 +496,13 @@ int32_t PozzoModule::runOnce()
     }
 
     readWaterLevel();
+
+
+    if (waterLevelMilliVolts > 1.5f) {
+      digitalWrite(PIN_RELAY_PUMP, HIGH);
+    } else {
+      digitalWrite(PIN_RELAY_PUMP, LOW);
+    }
 
     // if (ads != NULL) {
         
