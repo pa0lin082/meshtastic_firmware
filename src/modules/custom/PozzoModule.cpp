@@ -22,18 +22,18 @@ static const uint8_t LCD_ROWS = 4;
 static char displayBuffer[LCD_ROWS][LCD_COLS + 1];
 
 static const uint8_t WATER_LEVEL_SENSOR_CHANNEL = 0;
-static const uint8_t ACS712_CURRENT_SENSOR_CHANNEL = 1;  // Canale 1 per ACS712
+static const uint8_t SCT013_CURRENT_SENSOR_CHANNEL = 1;  // Canale 1 per SCT-013-030
 
 static const float WATER_LEVEL_SCALE_FACTOR = 15000.0f / 3.3f;
 
-// Configurazione ACS712-30A
-// L'ACS712 ha diverse versioni con sensibilità diverse:
-// - ACS712-05A: 185 mV/A (massimo 5A)
-// - ACS712-20A: 100 mV/A (massimo 20A)
-// - ACS712-30A: 66 mV/A (massimo 30A) ← MODELLO IN USO
-// L'uscita è Vcc/2 (1.65V @ 3.3V) a corrente zero, aumenta/diminuisce con la corrente
-static const float ACS712_ZERO_CURRENT_VOLTAGE = 1.65f;  // Vcc/2 per alimentazione 3.3V
-static const float ACS712_SENSITIVITY = 0.066f;  // 66 mV/A per modello 30A
+// Configurazione SCT-013-030
+// Il SCT-013-030 è un trasformatore di corrente (Current Transformer - CT)
+// Specifiche:
+// - Misura corrente AC fino a 30A
+// - Output: 1V per 30A (quindi 33.33 mV/A)
+// - Non ha offset DC (centrato a 0V, oscilla tra positivo e negativo)
+// - Richiede bias a Vcc/2 tramite circuito esterno per lettura su ADC unipolare
+static const float SCT013_SENSITIVITY = 0.03333f;  // 33.33 mV/A (1V/30A)
 
 // Configurazione campionamento
 // NOTA: Il data rate dell'ADS1115 è GLOBALE per tutti i canali
@@ -41,7 +41,7 @@ static const float ACS712_SENSITIVITY = 0.066f;  // 66 mV/A per modello 30A
 // - Per DC (livello acqua, corrente DC): 8-16 SPS è ottimale
 // - Per AC 50Hz: serve minimo 128-250 SPS
 static const int WATER_LEVEL_READ_SAMPLES = 1;  // Con 8 SPS, ogni lettura è già molto stabile
-static const int CURRENT_READ_SAMPLES = 1;       // Stessa logica
+static const int PUMP_CURRENT_READ_SAMPLES = 430;       // Stessa logica
 
 
 // Dichiarazioni delle variabili globali necessarie
@@ -93,13 +93,13 @@ bool PozzoModule::initADS1115()
     // 
     // Sensori collegati:
     // - Canale 0: Livello acqua (segnale lento DC)
-    // - Canale 1: ACS712 AC per pompa acqua
+    // - Canale 1: SCT-013-030 AC per pompa acqua
     // 
-    // L'ACS712 in AC ha già un circuito interno che filtra la corrente alternata
-    // e fornisce un'uscita DC proporzionale al valore RMS. Non serve campionare
-    // la forma d'onda a 50Hz, quindi 8 SPS è perfetto per entrambi i sensori!
-    ads->setDataRate(RATE_ADS1115_8SPS);  // 8 campioni/sec = 125ms per lettura
-    LOG_INFO("PozzoModule: Data rate impostato a 8 SPS (ottimale per livello acqua + ACS712 AC RMS)");
+    // Il SCT-013-030 misura corrente AC 50Hz. Per calcolare correttamente il valore RMS
+    // serve campionare la forma d'onda. Con 8 SPS otteniamo ~8 campioni al secondo.
+    // Per una misura RMS più accurata, considera 128 SPS (2.5+ campioni per ciclo 50Hz).
+    ads->setDataRate(RATE_ADS1115_128SPS);  // 8 campioni/sec = 125ms per lettura
+    LOG_INFO("PozzoModule: Data rate impostato a 860 SPS (per livello acqua + SCT-013-030 RMS)");
 
     // Test di comunicazione per verificare se il sensore risponde
     if (testADS1115Connection()) {
@@ -230,8 +230,7 @@ void PozzoModule::_writeToDisplay(uint8_t col, uint8_t row, const char *text, bo
                     lcd->print(displayBuffer[row][col + j]);
                 }
                 
-                LOG_DEBUG("PozzoModule: Aggiornato blocco da col %d a %d, row %d", 
-                         col + blockStart, col + blockEnd, row);
+                // LOG_DEBUG("PozzoModule: Aggiornato blocco da col %d a %d, row %d",  col + blockStart, col + blockEnd, row);
             }
         }
     }
@@ -400,18 +399,14 @@ void PozzoModule::writeToDisplay(bool firstUpdate) {
   _writeToDisplay(0, 0, "Pozzo", firstUpdate);
         
   // Prepara le stringhe con i valori
-  char mvStr[16];
-  snprintf(mvStr, sizeof(mvStr), "mV: %.3f", waterLevelMilliVolts);
+  char mvStr[20];
+  snprintf(mvStr, sizeof(mvStr), "mV: %.3f mt: %.3f", waterLevelMilliVolts,  waterLevelMillimeters/1000.0f);
   _writeToDisplay(0, 1, mvStr, firstUpdate);
   
-  char mmStr[16];
-  snprintf(mmStr, sizeof(mmStr), "mm: %.0f", waterLevelMillimeters);
-  _writeToDisplay(0, 2, mmStr, firstUpdate);
-  
-  char mtStr[16];
-  snprintf(mtStr, sizeof(mtStr), "mt: %.3f", waterLevelMillimeters/1000.0f);
-  _writeToDisplay(0, 3, mtStr, firstUpdate);
 
+  char pumpCurrentStr[20];
+  snprintf(pumpCurrentStr, sizeof(pumpCurrentStr), "Pompa Watt: %.3f", pumpCurrentPower);
+  _writeToDisplay(0, 2, pumpCurrentStr, firstUpdate);
 
   return;
     // // Verifica se il display è disponibile
@@ -456,6 +451,48 @@ void PozzoModule::writeToDisplay(bool firstUpdate) {
 }
 #endif // HAS_SCREEN
 
+void PozzoModule::readPumpCurrent() {
+  if (ads == NULL) {
+    LOG_ERROR("PozzoModule: ADS1115 non inizializzato");
+    return;
+  }
+
+  // Calcolo del valore RMS (Root Mean Square) dell'ADC per corrente AC
+  // Formula: ADC_RMS = sqrt(media(ADC^2))
+  // Il SCT-013-030 fornisce un segnale AC che oscilla attorno a un punto di bias
+  
+  long sumOfSquares = 0;
+  int sampleCount = 0;
+  long startTime = millis();
+  
+  // Campiona per 1000ms (con 8 SPS otterremo circa 8-10 campioni)
+  while (millis() - startTime < 200) {
+//   for (int i = 0; i < PUMP_CURRENT_READ_SAMPLES; i++) {
+    // Legge il valore differenziale ADC dal canale 2-3
+    int16_t adcValue = ads->readADC_Differential_2_3();
+    
+    // Accumula il quadrato del valore ADC
+    sumOfSquares += (long)adcValue * (long)adcValue;
+    sampleCount++;
+  }
+  
+  // Calcola il valore ADC RMS: radice quadrata della media dei quadrati
+  if (sampleCount > 0) {
+    pumpCurrentAdcValue = (int16_t)sqrt(sumOfSquares / sampleCount);
+  } else {
+    pumpCurrentAdcValue = 0;
+  }
+
+
+  pumpCurrentMilliVolts = ads->computeVolts(pumpCurrentAdcValue);
+  pumpCurrentAmps = pumpCurrentMilliVolts / SCT013_SENSITIVITY;
+  pumpCurrentPower = 220*pumpCurrentAmps;
+
+  LOG_INFO("PozzoModule: RMS - Campioni: %d, ADC RMS: %d , MilliVolts: %.6f, Amp: %.6f, Watt: %.3f", 
+           sampleCount, pumpCurrentAdcValue, pumpCurrentMilliVolts, pumpCurrentAmps, pumpCurrentPower);
+}
+
+
 void PozzoModule::readWaterLevel() {
   if (ads == NULL) {
     LOG_ERROR("PozzoModule: ADS1115 non inizializzato");
@@ -496,13 +533,15 @@ int32_t PozzoModule::runOnce()
     }
 
     readWaterLevel();
-
+    readPumpCurrent();
 
     if (waterLevelMilliVolts > 1.5f) {
       digitalWrite(PIN_RELAY_PUMP, HIGH);
     } else {
       digitalWrite(PIN_RELAY_PUMP, LOW);
     }
+
+
 
     // if (ads != NULL) {
         
@@ -580,7 +619,7 @@ int32_t PozzoModule::runOnce()
     writeToDisplay();
 #endif // HAS_SCREEN
 
-    return 100; // Controlla ogni 5 secondi
+    return 10; 
 }
 
 // #endif // USE_ADS118_MODULE

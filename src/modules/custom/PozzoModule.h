@@ -35,6 +35,11 @@ class PozzoModule : private concurrency::OSThread
     int16_t waterLevelAdcValue = 0;
     float waterLevelMilliVolts = 0.0f;
     float waterLevelMillimeters = 0.0f;
+
+    int16_t pumpCurrentAdcValue = 0;
+    float pumpCurrentMilliVolts = 0.0f;
+    float pumpCurrentAmps = 0.0f;
+    float pumpCurrentPower = 0.0f;
     
 
     // Configurazione ADS1118
@@ -55,6 +60,7 @@ class PozzoModule : private concurrency::OSThread
     void sendADS1118Telemetry();
 
     void readWaterLevel();
+    void readPumpCurrent();
 
     /** Inizializza il buffer del display con spazi */
     void initDisplayBuffer();
