@@ -514,7 +514,10 @@ void Screen::setup()
 {
 
     // === Enable display rendering ===
-    useDisplay = true;
+    #ifndef MESHTASTIC_EXCLUDE_UI
+        useDisplay = true;
+    #endif
+
 
     // === Load saved brightness from UI config ===
     // For OLED displays (SSD1306), default brightness is 255 if not set
