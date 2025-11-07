@@ -107,6 +107,23 @@
 #include "modules/DropzoneModule.h"
 #endif
 
+#if USE_CUSTOM_SENSOR_MODULE
+#include "modules/custom/CustomSensorModule.h"
+#endif
+
+#if USE_ADS118_MODULE
+#include "modules/custom/Ads118Module.h"
+#endif
+
+#if USE_TEST_MODULE
+#include "modules/custom/Test.h"
+#endif
+
+#if USE_POZZO_MODULE
+#include "modules/custom/PozzoModule.h"
+#endif
+
+
 /**
  * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
  */
@@ -298,6 +315,24 @@ void setupModules()
     if (moduleConfig.has_range_test && moduleConfig.range_test.enabled)
         new RangeTestModule();
 #endif
+
+#if USE_CUSTOM_SENSOR_MODULE
+customSensorModule = new CustomSensorModule();
+#endif
+
+#if USE_ADS118_MODULE
+ads118Module = new Ads118Module();
+#endif
+
+#if USE_TEST_MODULE
+testModule = new TestModule();
+#endif
+
+#if USE_POZZO_MODULE
+pozzoModule = new PozzoModule();
+#endif
+
+
     // NOTE! This module must be added LAST because it likes to check for replies from other modules and avoid sending extra
     // acks
     routingModule = new RoutingModule();
