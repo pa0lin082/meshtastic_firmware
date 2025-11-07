@@ -15,6 +15,12 @@
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
 
+/// per esportare sensors
+#include "Sensor/TelemetrySensor.h"
+#include <forward_list>
+// Funzione per accedere alla lista di sensori
+std::forward_list<TelemetrySensor *>& getSensors();
+
 class EnvironmentTelemetryModule : private concurrency::OSThread,
                                    public ScanI2CConsumer,
                                    public ProtobufModule<meshtastic_Telemetry>

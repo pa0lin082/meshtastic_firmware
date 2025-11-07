@@ -147,6 +147,10 @@ extern void drawCommonHeader(OLEDDisplay *display, int16_t x, int16_t y, const c
 #include <forward_list>
 
 static std::forward_list<TelemetrySensor *> sensors;
+// Funzione per accedere alla lista di sensori
+std::forward_list<TelemetrySensor *>& getSensors() {
+    return sensors;
+}
 
 template <typename T> void addSensor(ScanI2C *i2cScanner, ScanI2C::DeviceType type)
 {
