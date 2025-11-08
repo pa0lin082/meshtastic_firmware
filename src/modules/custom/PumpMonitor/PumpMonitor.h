@@ -3,8 +3,27 @@
 #include "input/InputBroker.h"
 #include "Observer.h"
 #include <Arduino.h>
+#include <vector>
+#include <deque>
+#include <algorithm>
+#include <cmath>
 
-#define HISTORY_SIZE 256  // Numero di campioni storici da tenere in memoria
+constexpr size_t HISTORY_SIZE = 256;  // Numero di campioni storici da tenere in memoria
+constexpr size_t STARTUP_SAMPLES = 20; // tollera più rumore all'accensione
+constexpr double SPIKE_K = 6.0; // soglia MAD per spike
+constexpr double EWMA_ALPHA = 0.05; // peso EWMA per baseline
+constexpr double EWMA_VAR_ALPHA = 0.02; // peso per varianza EWMA
+constexpr uint32_t PAUSE_THRESHOLD_MS = 500;
+constexpr uint32_t DWELL_TIME_MS = 2000;
+
+
+static double median(std::vector<float>& v) {
+    if (v.empty()) return 0.0;
+    size_t n = v.size();
+    std::sort(v.begin(), v.end());
+    if (n % 2 == 1) return v[n/2];
+    return 0.5 * (v[n/2 - 1] + v[n/2]);
+}
 
 enum PumpStatus {
     PUMP_NORMAL,
@@ -18,16 +37,43 @@ enum PumpStatus {
 class PumpMonitor
 {
   private:
-    float *currentValuePtr;  // Puntatore al valore corrente letto esternamente
+    float *currentValuePtr; // Puntatore al valore corrente letto esternamente
+
     
     // Observer per eventi input (bottoni)
     CallbackObserver<PumpMonitor, const InputEvent *> inputObserver =
         CallbackObserver<PumpMonitor, const InputEvent *>(this, &PumpMonitor::handleInputEvent);
     
-    // Storia delle letture
-    float currentHistory[HISTORY_SIZE];
-    int historyIndex;
-    bool historyFilled;
+    //history management
+    std::deque<float> currentHistory;
+    std::deque<unsigned long> interArrival;
+    double sum = 0.0;
+    double sumSq = 0.0;
+
+    // timing
+    unsigned long lastTime;
+    bool hasLastTime = false;
+
+     // startup
+    size_t samplesSeen = 0;
+
+
+     // out of band detection
+     bool outOfBand = false;
+     unsigned long outOfBandStart;
+
+    // spike handling
+    int spikeCounter = 0;
+    const int spikeTransientLimit = 2; // quanti campioni considerare "transiente"
+
+    // thresholds
+    const double baselineK = 4.0; // soglia in sigma per considerare "out of baseline"
+    const double minStdFloor = 0.01; // pavimento per std per non avere divisioni per 0
+
+    // EWMA baseline
+    bool hasEwma = false;
+    double ewma = 0.0;
+    double ewmaVar = 0.0;
     
     // Baseline e soglie
     float baselineCurrent;      // Corrente di riferimento (calibrata)
@@ -39,6 +85,7 @@ class PumpMonitor
     // Statistiche calcolate
     float currentAverage;
     float currentStdDev;
+    float currentVariance;
     float currentMin;
     float currentMax;
     
@@ -56,44 +103,44 @@ class PumpMonitor
     // Calcola statistiche sul buffer
     void calculateStatistics()
     {
-        if (!historyFilled && historyIndex < 10) {
+        if (currentHistory.size() < 10) {
             return;  // Non abbastanza dati
         }
         
-        int count = historyFilled ? HISTORY_SIZE : historyIndex;
+        size_t count = currentHistory.size();
         
-        // Media
+        // Media, min, max
         float sum = 0;
-        currentMin = currentHistory[0];
-        currentMax = currentHistory[0];
+        currentMin = currentHistory.front();
+        currentMax = currentHistory.front();
         
-        for (int i = 0; i < count; i++) {
-            sum += currentHistory[i];
-            if (currentHistory[i] < currentMin) currentMin = currentHistory[i];
-            if (currentHistory[i] > currentMax) currentMax = currentHistory[i];
+        for (const auto& val : currentHistory) {
+            sum += val;
+            if (val < currentMin) currentMin = val;
+            if (val > currentMax) currentMax = val;
         }
         currentAverage = sum / count;
         
         // Deviazione standard
         float variance = 0;
-        for (int i = 0; i < count; i++) {
-            float diff = currentHistory[i] - currentAverage;
+        for (const auto& val : currentHistory) {
+            float diff = val - currentAverage;
             variance += diff * diff;
         }
         variance = variance / count;
         currentStdDev = sqrt(variance);
     }
     
-    // Calcola media di un intervallo specifico
-    float averageRange(int start, int end)
+    // Calcola media di un intervallo specifico (da inizio deque)
+    float averageRange(size_t start, size_t end)
     {
-        if (end > (historyFilled ? HISTORY_SIZE : historyIndex)) {
+        if (end > currentHistory.size() || start >= end) {
             return 0.0f;
         }
         
         float sum = 0;
-        int count = end - start;
-        for (int i = start; i < end; i++) {
+        size_t count = end - start;
+        for (size_t i = start; i < end; i++) {
             sum += currentHistory[i];
         }
         return sum / count;
@@ -117,12 +164,22 @@ class PumpMonitor
         calibrationValidSamples = 0;
     }
 
+    void printStats(float value, double median, double approxStd, double ewmaVal, double ewmaStd) {
+        size_t n = currentHistory.size();
+        double avg = (n > 0) ? sum / n : 0.0;
+        double variance = (n > 0) ? (sumSq / n - avg*avg) : 0.0;
+        double stddev = (variance > 0.0) ? std::sqrt(variance) : 0.0;
+
+        LOG_INFO("PumpMonitor: Stats - N=%d, val=%.2f, avg=%.2f, min=%.2f, "
+                 "max=%.2f, std=%.2f, med=%.2f, MAD*1.4826~std=%.2f, "
+                 "EWMA=%.2f, EWMAstd~%.2f",
+                 n, value, avg, (n ? *std::min_element(currentHistory.begin(), currentHistory.end()) : 0.0), (n ? *std::max_element(currentHistory.begin(), currentHistory.end()) : 0.0), stddev, median, approxStd, ewmaVal, ewmaStd);
+    }
+
   public:
     // Costruttore: riceve il puntatore al float della corrente
     PumpMonitor(float *currentPtr) 
         : currentValuePtr(currentPtr),
-          historyIndex(0),
-          historyFilled(false),
           baselineCurrent(0.0f),
           thresholdLow(0.8f),
           thresholdHigh(1.2f),
@@ -143,11 +200,6 @@ class PumpMonitor
         // Registra questo oggetto come observer degli eventi input
         if (inputBroker)
             inputObserver.observe(inputBroker);
-        
-        // Inizializza history a zero
-        for (int i = 0; i < HISTORY_SIZE; i++) {
-            currentHistory[i] = 0.0f;
-        }
     }
 
     // Aggiunge un nuovo campione di corrente
@@ -156,9 +208,133 @@ class PumpMonitor
         if (currentValuePtr == nullptr) {
             return;
         }
-        
+
+        auto now = millis();
         float current = *currentValuePtr;
+
+
+        // --- inter-arrival time
+        if (hasLastTime) {
+            auto deltaMs = now - lastTime;
+            interArrival.push_back(deltaMs);
+            if (interArrival.size() > HISTORY_SIZE) interArrival.pop_front();
+
+            if (deltaMs > PAUSE_THRESHOLD_MS) {
+              LOG_WARN("PumpMonitor: Pausa lunga: %lu ms", deltaMs);
+            }
+        }
+        lastTime = now;
+        hasLastTime = true;
+
+
+         // --- gestione finestra dati (sum / sumSq per stddev)
+        if (currentHistory.size() >= HISTORY_SIZE) {
+            float old = currentHistory.front();
+            currentHistory.pop_front();
+            sum -= old;
+            sumSq -= old * old;
+        }
+        currentHistory.push_back(current);
+
         
+        sum += current;
+        sumSq += current * current;
+
+        currentAverage = sum / currentHistory.size();
+        currentVariance = sumSq / currentHistory.size() - currentAverage * currentAverage;
+        currentStdDev = sqrt(currentVariance);
+
+        currentMin = *std::min_element(currentHistory.begin(), currentHistory.end());
+        currentMax = *std::max_element(currentHistory.begin(), currentHistory.end());
+
+
+         // --- rolling window for robust stats: compute median & MAD from copy (cost O(n log n))
+        // For MAX_SIZE ~100 è accettabile; se alto, usare struttura specializzata.
+        std::vector<float> tmp(currentHistory.begin(), currentHistory.end());
+        double med = median(tmp);
+
+        // MAD
+        for (auto &x : tmp) x = static_cast<float>(std::abs(x - med));
+        double mad = median(tmp);
+        // converti MAD -> approx stddev: std ≈ 1.4826 * MAD for normal dist
+        double approxStd = mad * 1.4826;
+
+
+         // --- EWMA baseline + variance (per rilevazione deviazioni prolungate)
+         if (!hasEwma) {
+            ewma = current;
+            ewmaVar = 0.0;
+            hasEwma = true;
+        } else {
+            double delta = current - ewma;
+            ewma += EWMA_ALPHA * delta;
+            // ewma of squared error
+            ewmaVar += EWMA_VAR_ALPHA * (delta*delta - ewmaVar);
+        }
+        double ewmaStd = std::sqrt(std::max(0.0, ewmaVar));
+
+
+         // --- Gestione stato startup (più tollerante)
+         if (samplesSeen < STARTUP_SAMPLES) {
+            ++samplesSeen;
+            // non valutare come anomalia reale; ma possiamo ancora stampare statistica
+            printStats(current, med, approxStd, ewma, ewmaStd);
+            return;
+         }
+
+
+          // --- Spike detection (breve outlier)
+        bool isSpike = false;
+        if (mad == 0.0) {
+            // caso in cui tutti i valori uguali -> se valore diverso anche leggermente, consideralo
+            isSpike = (std::abs(current - med) > 1e-6);
+        } else {
+            isSpike = (std::abs(current - med) > SPIKE_K * mad);
+        }
+
+
+        // Se è spike ma dura un solo campione (o pochi), lo ignoriamo:
+        if (isSpike) {
+            spikeCounter++;
+            // se spike prolungato oltre soglia temporale, consideralo anomalia
+            if (spikeCounter <= spikeTransientLimit) {
+                LOG_INFO("PumpMonitor: Spike transiente rilevato (sample %d) valore=%.2f", spikeCounter, current);
+                // non aggiornare stato anomalia prolungata; stampa stats comunque
+                printStats(current, med, approxStd, ewma, ewmaStd);
+                // return;
+            } else {
+                // prolungato -> treat as sustained anomaly
+                LOG_WARN("PumpMonitor: Spike prolungato: valore=%.2f", current);
+                // caduta intenzionale nel flusso di controllo per segnalarlo come anomalia
+            }
+        } else {
+            spikeCounter = 0; // reset conto spike consecutivi
+        }
+
+
+         // --- Rilevazione deviazione prolungata rispetto alla EWMA
+         double diffFromBaseline = current - ewma;
+         bool deviateHigh = (diffFromBaseline > baselineK * std::max(ewmaStd, minStdFloor));
+         bool deviateLow = (diffFromBaseline < -baselineK * std::max(ewmaStd, minStdFloor));
+
+
+
+         // manteniamo timer per quanto tempo siamo "fuori soglia"
+        if (deviateHigh || deviateLow) {
+            if (!outOfBand) {
+                outOfBand = true;
+                outOfBandStart = now;
+            } else {
+                auto dur = now - outOfBandStart;
+                if (dur >= DWELL_TIME_MS) {
+                  LOG_WARN("PumpMonitor: Deviazione prolungata di %lu ms. Valore=%.2f EWMA=%.2f diff=%.2f", dur, current, ewma, diffFromBaseline);
+                    // qui puoi attivare log, allarme, shutdown, ecc.
+                }
+            }
+        } else {
+            outOfBand = false;
+        }
+
         // Se siamo in calibrazione, accumula campioni
         if (isCalibrating) {
             calibrationSamples++;
@@ -178,19 +354,7 @@ class PumpMonitor
             return;
         }
         
-        // Aggiungi al buffer circolare
-        currentHistory[historyIndex] = current;
-        historyIndex++;
         
-        if (historyIndex >= HISTORY_SIZE) {
-            historyIndex = 0;
-            historyFilled = true;
-        }
-        
-        // Ricalcola statistiche ogni 10 campioni
-        if (historyIndex % 10 == 0) {
-            calculateStatistics();
-        }
     }
     
     // Analizza lo stato della pompa
@@ -230,11 +394,13 @@ class PumpMonitor
         }
         
         // 4. Controllo degrado graduale (confronta campioni recenti vs vecchi)
-        if (historyFilled && historyIndex > 50) {
-            float avgRecent = averageRange(0, 20);      // Ultimi 20 campioni
-            int oldStart = historyIndex + 20;
-            if (oldStart >= HISTORY_SIZE) oldStart -= HISTORY_SIZE;
-            float avgOld = averageRange(oldStart, oldStart + 20);  // Campioni vecchi
+        if (currentHistory.size() >= 60) {
+            // Ultimi 20 campioni (più recenti sono alla fine del deque)
+            size_t size = currentHistory.size();
+            float avgRecent = averageRange(size - 20, size);
+            
+            // Primi 20 campioni (più vecchi)
+            float avgOld = averageRange(0, 20);
             
             if (avgOld - avgRecent > degradationThreshold) {
                 LOG_WARN("Pump: Gradual degradation detected - Old avg: %.2fA, Recent avg: %.2fA (drop: %.2fA)", 
@@ -245,25 +411,28 @@ class PumpMonitor
         }
         
         // 5. Controllo oscillazioni eccessive (cavitazione/aria)
-        int significantChanges = 0;
-        int checkCount = historyFilled ? 50 : (historyIndex > 50 ? 50 : historyIndex);
-        
-        for (int i = 1; i < checkCount; i++) {
-            int idx1 = (historyIndex - i + HISTORY_SIZE) % HISTORY_SIZE;
-            int idx2 = (historyIndex - i - 1 + HISTORY_SIZE) % HISTORY_SIZE;
-            float diff = abs(currentHistory[idx1] - currentHistory[idx2]);
+        size_t histSize = currentHistory.size();
+        if (histSize >= 2) {
+            int significantChanges = 0;
+            size_t checkCount = (histSize > 50) ? 50 : histSize - 1;
             
-            if (diff > 0.2f) {  // Variazione > 0.2A
-                significantChanges++;
+            // Controlla le ultime 'checkCount' transizioni
+            size_t startIdx = histSize - checkCount - 1;
+            for (size_t i = startIdx; i < histSize - 1; i++) {
+                float diff = abs(currentHistory[i + 1] - currentHistory[i]);
+                
+                if (diff > 0.2f) {  // Variazione > 0.2A
+                    significantChanges++;
+                }
             }
-        }
-        
-        float changeRatio = (float)significantChanges / checkCount;
-        if (changeRatio > oscillationThreshold) {
-            LOG_WARN("Pump: Excessive oscillations detected - %.1f%% samples show significant changes", 
-                     changeRatio * 100);
-            currentStatus = PUMP_UNSTABLE;
-            return currentStatus;
+            
+            float changeRatio = (float)significantChanges / checkCount;
+            if (changeRatio > oscillationThreshold) {
+                LOG_WARN("Pump: Excessive oscillations detected - %.1f%% samples show significant changes", 
+                         changeRatio * 100);
+                currentStatus = PUMP_UNSTABLE;
+                return currentStatus;
+            }
         }
         
         // Tutto OK
@@ -306,8 +475,8 @@ class PumpMonitor
     float getMin() const { return currentMin; }
     float getMax() const { return currentMax; }
     PumpStatus getStatus() const { return currentStatus; }
-    int getSampleCount() const { return historyFilled ? HISTORY_SIZE : historyIndex; }
-    bool isHistoryFull() const { return historyFilled; }
+    size_t getSampleCount() const { return currentHistory.size(); }
+    bool isHistoryFull() const { return currentHistory.size() >= HISTORY_SIZE; }
     bool isCalibrationInProgress() const { return isCalibrating; }
     int getCalibrationProgress() const { return isCalibrating ? calibrationSamples : 0; }
     int getCalibrationTarget() const { return calibrationTargetSamples; }

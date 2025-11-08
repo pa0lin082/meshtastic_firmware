@@ -476,6 +476,16 @@ void PozzoModule::readPumpCurrent() {
     // LOG_WARN("PozzoModule: readPumpCurrent cstarty continuos reading");
     ads->startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_2_3, /*continuous=*/true);
     readingMode = PUMP_CURRENT;
+
+    // Aspetta che la prima conversione sul nuovo canale sia completa
+    // while (!ads->conversionComplete()) {
+    //     delay(1);  // Piccolo delay per non saturare il bus I2C
+    // }
+
+    delay(1);
+    ads->getLastConversionResults();
+    delay(1);
+
   }
 
   // Calcolo del valore RMS (Root Mean Square) dell'ADC per corrente AC
@@ -509,13 +519,14 @@ void PozzoModule::readPumpCurrent() {
 
   pumpCurrentMilliVolts = ads->computeVolts(pumpCurrentAdcValue);
   pumpCurrentAmps = pumpCurrentMilliVolts / SCT013_SENSITIVITY;
-  pumpCurrentPower = 220 * pumpCurrentAmps;
+//   pumpCurrentPower = 220 * pumpCurrentAmps;
 
 #if USE_FFTPUMPMONITOR
   fftPumpMonitor->pick();
 #endif
 #if USE_PUMPMONITOR
   pumpMonitor->pick();
+  pumpCurrentPower = 220 * pumpMonitor->getAverage();
 #endif
 
 //   LOG_INFO("PozzoModule: RMS - Campioni: %d, ADC RMS: %d , MilliVolts: %.6f, Amp: %.6f, Watt: %.3f. sampleTime: %ld ms",    

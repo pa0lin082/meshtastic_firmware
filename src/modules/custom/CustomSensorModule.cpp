@@ -178,7 +178,7 @@ void CustomSensorModule::setup() {
     }
 
     for (TelemetrySensor *sensor : getSensors()) {
-        LOG_INFO("CustomEnvironmentTelemetryModule: sensor->sensorName => %s", sensor->sensorName);
+        sensor->runOnce();
     }
 
 }
