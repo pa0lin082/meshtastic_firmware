@@ -38,6 +38,8 @@ class PozzoModule : private concurrency::OSThread
     jm_LCM2004A_I2C *lcd = NULL; // addr: 0x27, Wire1
     FFTPumpMonitor *fftPumpMonitor = NULL;
     PumpMonitor *pumpMonitor = NULL;
+
+    
   private:
     bool initialized;
     uint32_t lastSentToMesh = 0;
@@ -55,6 +57,13 @@ class PozzoModule : private concurrency::OSThread
     float pumpCurrentMilliVolts = 0.0f;
     float pumpCurrentAmps = 0.0f;
     float pumpCurrentPower = 0.0f;
+
+    // Gestione stato pompa con deviatore
+    bool pumpDesiredState = false;     // Stato desiderato dal software
+    bool pumpActualState = false;      // Stato reale rilevato dal monitor corrente
+    bool pumpExternalControl = false;  // Flag che indica se la pompa è controllata esternamente
+    bool pumpRelayState = false;       // Stato del relay della pompa
+    uint32_t lastPumpStateCheck = 0;   // Ultimo controllo dello stato pompa
     
 
     // Configurazione ADS1118
@@ -76,6 +85,14 @@ class PozzoModule : private concurrency::OSThread
 
     void readWaterLevel();
     void readPumpCurrent();
+
+    /** Gestione stato pompa con deviatore */
+    void updatePumpActualState();      // Aggiorna lo stato reale leggendo il monitor corrente
+    void setPumpState(bool turnOn);    // Imposta lo stato desiderato della pompa
+    bool isPumpOn();                   // Ritorna true se la pompa è accesa (stato reale)
+    void syncPumpState();              // Sincronizza stato reale con desiderato
+    void resetExternalControlFlag();   // Resetta il flag di controllo esterno
+    bool isUnderExternalControl();     // Ritorna true se la pompa è sotto controllo esterno
 
     /** Inizializza il buffer del display con spazi */
     void initDisplayBuffer();

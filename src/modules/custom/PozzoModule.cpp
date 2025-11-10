@@ -16,6 +16,8 @@
 #define PIN_RELAY_PUMP 45
 #define DISPLAY_UPDATE_INTERVAL_MS 1000
 #define TELEMETRY_UPDATE_INTERVAL_MS 30000
+#define PUMP_STATE_CHECK_INTERVAL_MS 250   // Intervallo controllo stato pompa
+#define PUMP_ON_CURRENT_THRESHOLD 0.5f      // Soglia corrente per considerare pompa accesa (Ampere)
 
 
 #define USE_FFTPUMPMONITOR 0
@@ -97,8 +99,7 @@ bool PozzoModule::initADS1115()
     }
 
 
-    // Configura il gain per il range 3.3V
-    ads->setGain(GAIN_ONE);  // ±4.096V
+    
     
     // Configura il data rate (GLOBALE per tutti i canali!)
     // IMPORTANTE: Il data rate si applica a TUTTI i canali dell'ADS1115
@@ -421,6 +422,15 @@ void PozzoModule::writeToDisplay(bool firstUpdate) {
   snprintf(pumpCurrentStr, sizeof(pumpCurrentStr), "Pompa Watt: %.3f", pumpCurrentPower);
   _writeToDisplay(0, 2, pumpCurrentStr, firstUpdate);
 
+  // Mostra stato pompa
+  char pumpStateStr[20];
+  if (pumpExternalControl) {
+      snprintf(pumpStateStr, sizeof(pumpStateStr), "Stato: %s [EXT]", pumpActualState ? "ON " : "OFF");
+  } else {
+      snprintf(pumpStateStr, sizeof(pumpStateStr), "Stato: %s", pumpActualState ? "ON " : "OFF");
+  }
+  _writeToDisplay(0, 3, pumpStateStr, firstUpdate);
+
   return;
     // // Verifica se il display è disponibile
     // if (!screen || !screen->getDisplayDevice()) {
@@ -473,6 +483,10 @@ void PozzoModule::readPumpCurrent() {
   if (readingMode != PUMP_CURRENT) {
     // LOG_WARN("PozzoModule: readPumpCurrent change ADS data rate to 475SPS");
     ads->setDataRate(RATE_ADS1115_475SPS);
+
+     // Configura il gain per il range 0-1V
+    ads->setGain(GAIN_FOUR); //< +/-1.024V range = Gain 4
+                             
     // LOG_WARN("PozzoModule: readPumpCurrent cstarty continuos reading");
     ads->startADCReading(ADS1X15_REG_CONFIG_MUX_DIFF_2_3, /*continuous=*/true);
     readingMode = PUMP_CURRENT;
@@ -542,6 +556,9 @@ void PozzoModule::readWaterLevel() {
   if (readingMode != WATER_LEVEL) {
     // LOG_WARN("PozzoModule: readWaterLevel change ADS data rate to 8SPS");
     ads->setDataRate(RATE_ADS1115_8SPS);
+    // Configura il gain per il range 3.3V
+    ads->setGain(GAIN_ONE); // ±4.096V
+    
     readingMode = WATER_LEVEL ;
   }
 
@@ -557,6 +574,120 @@ void PozzoModule::readWaterLevel() {
 
 // LOG_INFO("PozzoModule: waterLevelAdcValue: %d, waterLevelMilliVolts: %.2f, waterLevelMillimeters: %.0f ", waterLevelAdcValue, (double)waterLevelMilliVolts, (double)waterLevelMillimeters);
 
+}
+
+/**
+ * Aggiorna lo stato reale della pompa leggendo la corrente dal pumpMonitor
+ * Considera la pompa accesa se la corrente è > 0.5A
+ */
+void PozzoModule::updatePumpActualState() {
+#if USE_PUMPMONITOR
+    if (pumpMonitor == NULL) {
+        return;
+    }
+
+    // Leggi la corrente media dal monitor
+    float avgCurrent = pumpMonitor->getAverage();
+    
+    // Determina lo stato reale
+    bool newActualState = (avgCurrent > PUMP_ON_CURRENT_THRESHOLD);
+    
+    // Se lo stato è cambiato rispetto a quello che conosciamo
+    if (newActualState != pumpActualState) {
+        // Controlla se il cambio è stato fatto dall'esterno
+        // (cioè se lo stato reale è diverso da quello desiderato)
+        if (newActualState != pumpDesiredState) {
+            pumpExternalControl = true;
+            LOG_WARN("PozzoModule: Rilevato cambio stato pompa ESTERNO - Stato reale: %s, Stato desiderato: %s",
+                     newActualState ? "ON" : "OFF",
+                     pumpDesiredState ? "ON" : "OFF");
+        } else {
+            // Il cambio è in linea con il nostro comando
+            LOG_INFO("PozzoModule: Confermato cambio stato pompa - Nuovo stato: %s", 
+                     newActualState ? "ON" : "OFF");
+            pumpExternalControl = false;
+        }
+        
+        pumpActualState = newActualState;
+    }
+#endif
+}
+
+/**
+ * Imposta lo stato desiderato della pompa
+ * Con un deviatore, il comando è un impulso che inverte lo stato corrente
+ */
+void PozzoModule::setPumpState(bool turnOn) {
+    LOG_INFO("PozzoModule: Richiesta cambio stato pompa a: %s (stato attuale: %s)", 
+             turnOn ? "ON" : "OFF",
+             pumpActualState ? "ON" : "OFF");
+    
+    // Imposta lo stato desiderato
+    pumpDesiredState = turnOn;
+    
+    // Se lo stato desiderato è diverso dallo stato attuale, invia impulso al relay
+    // Con un deviatore, il relay deve solo invertire lo stato corrente
+    if (pumpDesiredState != pumpActualState) {
+      LOG_INFO("PozzoModule: Invio impulso al relay per cambiare stato pompa");
+
+      pumpRelayState = !pumpRelayState;
+        
+        digitalWrite(PIN_RELAY_PUMP, pumpRelayState ? HIGH : LOW);
+        
+        LOG_INFO("PozzoModule: Impulso relay inviato, stato desiderato: %s", pumpDesiredState ? "ON" : "OFF");
+    } else {
+        LOG_INFO("PozzoModule: Pompa già nello stato desiderato, nessun comando inviato");
+    }
+}
+
+/**
+ * Ritorna lo stato reale della pompa
+ */
+bool PozzoModule::isPumpOn() {
+    return pumpActualState;
+}
+
+/**
+ * Sincronizza lo stato reale con quello desiderato
+ * Chiamata periodicamente per verificare che la pompa sia nello stato corretto
+ */
+void PozzoModule::syncPumpState() {
+    // Aggiorna lo stato reale leggendo il monitor
+    updatePumpActualState();
+    
+    // Se c'è una discrepanza tra desiderato e reale, registra un warning
+    if (pumpDesiredState != pumpActualState) {
+        if (pumpExternalControl) {
+            LOG_WARN("PozzoModule: Pompa sotto controllo esterno - Desiderato: %s, Reale: %s",
+                     pumpDesiredState ? "ON" : "OFF",
+                     pumpActualState ? "ON" : "OFF");
+        } else {
+            // Potrebbe essere in transizione, aspetta qualche ciclo prima di segnalare errore
+            LOG_DEBUG("PozzoModule: Discrepanza stato pompa - Desiderato: %s, Reale: %s",
+                      pumpDesiredState ? "ON" : "OFF",
+                      pumpActualState ? "ON" : "OFF");
+        }
+    }
+}
+
+/**
+ * Resetta il flag di controllo esterno
+ * Utile quando si vuole riprendere il controllo automatico della pompa
+ */
+void PozzoModule::resetExternalControlFlag() {
+    if (pumpExternalControl) {
+        LOG_INFO("PozzoModule: Reset flag controllo esterno - ripresa controllo automatico");
+        pumpExternalControl = false;
+        // Sincronizza lo stato desiderato con quello reale
+        pumpDesiredState = pumpActualState;
+    }
+}
+
+/**
+ * Ritorna true se la pompa è sotto controllo esterno
+ */
+bool PozzoModule::isUnderExternalControl() {
+    return pumpExternalControl;
 }
 
 int32_t PozzoModule::runOnce()
@@ -593,10 +724,21 @@ int32_t PozzoModule::runOnce()
          }
     );
 
-    if (waterLevelMilliVolts > 1.5f) {
-      digitalWrite(PIN_RELAY_PUMP, HIGH);
-    } else {
-      digitalWrite(PIN_RELAY_PUMP, LOW);
+    // Sincronizza lo stato della pompa periodicamente
+    if (!Throttle::isWithinTimespanMs(lastPumpStateCheck, PUMP_STATE_CHECK_INTERVAL_MS)) {
+        syncPumpState();
+        lastPumpStateCheck = millis();
+    }
+
+    // Logica di controllo automatico della pompa basata sul livello acqua
+    // Determina se la pompa dovrebbe essere accesa o spenta
+    bool shouldPumpBeOn = (waterLevelMilliVolts > 1.5f);
+    
+    // Se lo stato desiderato è diverso da quello che vorremmo, comanda il cambio
+    if (shouldPumpBeOn != pumpDesiredState) {
+        LOG_INFO("PozzoModule: Livello acqua richiede pompa %s (livello: %.3fV)", 
+                 shouldPumpBeOn ? "ON" : "OFF", waterLevelMilliVolts);
+        setPumpState(shouldPumpBeOn);
     }
 
 
