@@ -63,7 +63,8 @@ extern graphics::Screen *screen;
 PozzoModule *pozzoModule;
 
 PozzoModule::PozzoModule()
-    : concurrency::OSThread("PozzoModule")
+    : SinglePortModule("PozzoModule", meshtastic_PortNum_TEXT_MESSAGE_APP),
+      concurrency::OSThread("PozzoModule")
 {
     LOG_INFO("PozzoModule: Costruttore chiamato - l'inizializzazione ADS1115 avverrà in runOnce()");
     initDisplayBuffer();
@@ -85,6 +86,100 @@ PozzoModule::~PozzoModule()
 void PozzoModule::setup()
 {
     LOG_INFO("PozzoModule: setup() => Inizializzazione modulo ADS1118");
+}
+
+/**
+ * Determina se il modulo vuole ricevere questo pacchetto
+ */
+bool PozzoModule::wantPacket(const meshtastic_MeshPacket *p)
+{
+    // Vogliamo ricevere tutti i messaggi testuali
+    return MeshService::isTextPayload(p);
+}
+
+/**
+ * Gestisce la ricezione di messaggi testuali
+ */
+ProcessMessage PozzoModule::handleReceived(const meshtastic_MeshPacket &mp)
+{
+    // Estrae il testo dal payload
+    const auto &p = mp.decoded;
+    
+    LOG_INFO("========================================");
+    LOG_INFO("PozzoModule: Ricevuto messaggio testuale (%d byte) da 0x%0x", 
+             p.payload.size, mp.from);
+    
+    // Stampa il messaggio ricevuto
+    LOG_INFO("PozzoModule: Contenuto: %.*s", p.payload.size, p.payload.bytes);
+    LOG_INFO("========================================");
+
+    // Ora proviamo il parsing JSON se il messaggio inizia con '{'
+    if (p.payload.size > 0 && p.payload.bytes[0] == '{') {
+        LOG_INFO("PozzoModule: Il messaggio sembra essere JSON, provo il parsing...");
+        
+        // Crea una stringa null-terminated
+        char jsonStr[p.payload.size + 1];
+        memcpy(jsonStr, p.payload.bytes, p.payload.size);
+        jsonStr[p.payload.size] = '\0';
+        
+        // Tenta il parsing
+        JSONValue *jsonValue = JSON::Parse(jsonStr);
+        
+        if (jsonValue == NULL) {
+            LOG_ERROR("PozzoModule: Errore nel parsing JSON");
+        } else {
+            LOG_INFO("PozzoModule: ✓ Parsing JSON riuscito!");
+            
+            // Verifica che sia un oggetto
+            if (jsonValue->IsObject()) {
+                JSONObject root = jsonValue->AsObject();
+                
+                // Stampa il tipo se presente
+                if (root.find("type") != root.end() && root["type"]->IsString()) {
+                    LOG_INFO("PozzoModule: - type: %s", root["type"]->AsString().c_str());
+                }
+                
+                // Stampa le metriche se presenti
+                if (root.find("metrics") != root.end() && root["metrics"]->IsArray()) {
+                    JSONArray metrics = root["metrics"]->AsArray();
+                    LOG_INFO("PozzoModule: - metrics: %d elementi", metrics.size());
+                    
+                    // Stampa ogni metrica
+                    for (size_t i = 0; i < metrics.size(); i++) {
+                        if (metrics[i]->IsObject()) {
+                            JSONObject metric = metrics[i]->AsObject();
+                            
+                            // Estrai i campi
+                            const char *name = "";
+                            double value = 0.0;
+                            const char *unit = "";
+                            
+                            if (metric.find("n") != metric.end() && metric["n"]->IsString()) {
+                                name = metric["n"]->AsString().c_str();
+                            }
+                            if (metric.find("v") != metric.end() && metric["v"]->IsNumber()) {
+                                value = metric["v"]->AsNumber();
+                            }
+                            if (metric.find("u") != metric.end() && metric["u"]->IsString()) {
+                                unit = metric["u"]->AsString().c_str();
+                            }
+                            
+                            LOG_INFO("PozzoModule:   [%d] %s = %.6f %s", i, name, value, unit);
+                        }
+                    }
+                }
+            } else {
+                LOG_WARN("PozzoModule: JSON non è un oggetto");
+            }
+            
+            // Pulisce il JSON
+            delete jsonValue;
+        }
+        LOG_INFO("========================================");
+    }
+
+    // Lascia che altri moduli possano processare il messaggio
+    return ProcessMessage::CONTINUE;
 }
 
 

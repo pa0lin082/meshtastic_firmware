@@ -1,5 +1,6 @@
 #pragma once
 #include "concurrency/OSThread.h"
+#include "SinglePortModule.h"
 #include "graphics/Screen.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include "mesh/generated/meshtastic/portnums.pb.h"
@@ -12,7 +13,7 @@
  * Modulo per la gestione dell'ADS1118 (ADC ad alta precisione)
  * Comunica via Software SPI e legge 4 canali analogici
  */
-class PozzoModule : private concurrency::OSThread
+class PozzoModule : public SinglePortModule, private concurrency::OSThread
 {
   public:
     /** Constructor */
@@ -25,6 +26,11 @@ class PozzoModule : private concurrency::OSThread
     void setup();
 
   protected:
+    /** Gestisce la ricezione di messaggi */
+    virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
+    
+    /** Determina se il modulo vuole ricevere questo pacchetto */
+    virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
     typedef enum ReadingMode {
       NONE,
       WATER_LEVEL,
