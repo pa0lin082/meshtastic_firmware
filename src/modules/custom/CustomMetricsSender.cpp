@@ -45,9 +45,9 @@ bool CustomMetricsSender::addMetric(const char *name, float value, const char *u
 
     // Crea un oggetto metrica
     JSONObject metricObj;
-    metricObj["name"] = new JSONValue(name);
-    metricObj["value"] = new JSONValue((double)value);
-    metricObj["unit"] = new JSONValue(unit);
+    metricObj["n"] = new JSONValue(name);
+    metricObj["v"] = new JSONValue((double)value);
+    metricObj["u"] = new JSONValue(unit);
 
     // Aggiungi la metrica all'array
     metricsArray.push_back(new JSONValue(metricObj));
@@ -109,7 +109,7 @@ bool CustomMetricsSender::send(bool broadcast)
     // Imposta il tipo di porta
     p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
 
-    // Crea l'oggetto JSON principale
+        // Crea l'oggetto JSON principale
     JSONObject jsonObj;
     jsonObj["type"] = new JSONValue(messageType.c_str());
     jsonObj["metrics"] = new JSONValue(metricsArray);
@@ -118,27 +118,38 @@ bool CustomMetricsSender::send(bool broadcast)
     JSONValue *jsonValue = new JSONValue(jsonObj);
     std::string jsonData = jsonValue->Stringify();
     
-    LOG_INFO("CustomMetricsSender: JSON generato (%d byte): %s", jsonData.length(), jsonData.c_str());
+    // IMPORTANTE: delete jsonValue elimina TUTTO l'albero JSON, inclusi i puntatori in metricsArray
+    // Quindi dobbiamo eliminarlo e poi svuotare metricsArray senza fare delete
+    delete jsonValue;
+    // Svuota l'array senza eliminare i puntatori (già eliminati da delete jsonValue)
+    metricsArray.clear();
+    
+    LOG_INFO("CustomMetricsSender: JSON generato (%d byte)", jsonData.length());
+    LOG_INFO("%s",jsonData.c_str());
     
     // Verifica che il payload non sia troppo grande
     if (jsonData.length() > sizeof(p->decoded.payload.bytes)) {
         LOG_ERROR("CustomMetricsSender: Payload troppo grande (%d byte, max %d)", 
-                  jsonData.length(), sizeof(p->decoded.payload.bytes));
-        delete jsonValue;
+                    jsonData.length(), sizeof(p->decoded.payload.bytes));
         return false;
     }
 
     // Copia i dati nel payload
     memcpy(p->decoded.payload.bytes, jsonData.c_str(), jsonData.length());
     p->decoded.payload.size = jsonData.length();
+ 
+
+
+
+
 
     // Imposta il destinatario
     if (broadcast) {
         p->to = NODENUM_BROADCAST;
     }
 
-    // Pulisce il JSON value (il jsonObj contiene le metriche che saranno pulite dopo)
-    delete jsonValue;
+    p->decoded.want_response = false;
+    p->priority = meshtastic_MeshPacket_Priority_RELIABLE;
 
     // Invia il messaggio
     service->sendToMesh(p, RX_SRC_LOCAL);
@@ -178,23 +189,41 @@ std::string CustomMetricsSender::getJsonString() const
     }
 
     // Crea l'oggetto JSON principale
+    // NOTA: Questa funzione è const quindi non possiamo modificare metricsArray
+    // Dobbiamo fare attenzione a non causare memory leak
     JSONObject jsonObj;
     jsonObj["type"] = new JSONValue(messageType.c_str());
-    jsonObj["metrics"] = new JSONValue(metricsArray);
+    
+    // Crea una COPIA dell'array per evitare problemi di ownership
+    std::vector<JSONValue *> metricsCopy;
+    for (size_t i = 0; i < metricsArray.size(); i++) {
+        // Non copiamo, usiamo solo il reference - questo è ok perché è const
+        metricsCopy.push_back(metricsArray[i]);
+    }
+    jsonObj["metrics"] = new JSONValue(metricsCopy);
 
     // Converti in stringa
     JSONValue *jsonValue = new JSONValue(jsonObj);
     std::string jsonData = jsonValue->Stringify();
-    delete jsonValue;
+    
+    // PROBLEMA: delete jsonValue eliminerebbe anche i puntatori in metricsArray!
+    // Non possiamo eliminarli perché sono ancora usati dall'oggetto
+    // TODO: Questo crea un memory leak - la funzione dovrebbe essere riprogettata
+    // Per ora non eliminiamo per evitare il crash
+    // delete jsonValue;
 
     return jsonData;
 }
 
 void CustomMetricsSender::cleanup()
 {
-    // Pulisce tutti i JSONValue nell'array
+    // Pulisce tutti i JSONValue nell'array E i JSONValue interni a ciascuna metrica
     for (size_t i = 0; i < metricsArray.size(); i++) {
-        delete metricsArray[i];
+        if (metricsArray[i]) {
+            // Ogni elemento è un JSONValue che contiene un JSONObject con "n", "v", "u"
+            // Il delete di JSONValue dovrebbe pulire anche il contenuto interno
+            delete metricsArray[i];
+        }
     }
     metricsArray.clear();
 }

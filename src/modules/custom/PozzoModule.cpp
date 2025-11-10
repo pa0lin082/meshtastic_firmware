@@ -3,6 +3,8 @@
 #include "main.h"
 #include "PozzoModule.h"
 #include "DebugConfiguration.h"
+#include "CustomMetricsSender.h"
+
 #include "MeshService.h"
 #include "OLEDDisplayFonts.h"
 #include "Router.h"
@@ -15,7 +17,7 @@
 
 #define PIN_RELAY_PUMP 45
 #define DISPLAY_UPDATE_INTERVAL_MS 1000
-#define TELEMETRY_UPDATE_INTERVAL_MS 30000
+#define TELEMETRY_UPDATE_INTERVAL_MS 10*60*1000 // 10 minuti
 #define PUMP_STATE_CHECK_INTERVAL_MS 250   // Intervallo controllo stato pompa
 #define PUMP_ON_CURRENT_THRESHOLD 0.5f      // Soglia corrente per considerare pompa accesa (Ampere)
 
@@ -61,7 +63,7 @@ extern graphics::Screen *screen;
 PozzoModule *pozzoModule;
 
 PozzoModule::PozzoModule()
-    : concurrency::OSThread("PozzoModule"), initialized(false), lastSentToMesh(0), _gain(1), _dataRate(4)
+    : concurrency::OSThread("PozzoModule")
 {
     LOG_INFO("PozzoModule: Costruttore chiamato - l'inizializzazione ADS1115 avverrà in runOnce()");
     initDisplayBuffer();
@@ -95,33 +97,8 @@ bool PozzoModule::initADS1115()
       LOG_ERROR("PozzoModule: Errore nell'inizializzazione dell'ADS1115");
       return false;
     }else{
-        LOG_INFO("PozzoModule: ADS1115.begin() completato con successo");
-    }
-
-
-    
-    
-    // Configura il data rate (GLOBALE per tutti i canali!)
-    // IMPORTANTE: Il data rate si applica a TUTTI i canali dell'ADS1115
-    // 
-    // Sensori collegati:
-    // - Canale 0: Livello acqua (segnale lento DC)
-    // - Canale 1: SCT-013-030 AC per pompa acqua
-    // 
-    // Il SCT-013-030 misura corrente AC 50Hz. Per calcolare correttamente il valore RMS
-    // serve campionare la forma d'onda. Con 8 SPS otteniamo ~8 campioni al secondo.
-    // Per una misura RMS più accurata, considera 128 SPS (2.5+ campioni per ciclo 50Hz).
-    ads->setDataRate(RATE_ADS1115_250SPS); // 8 campioni/sec = 125ms per lettura
-    
-    LOG_INFO("PozzoModule: Data rate impostato a 860 SPS (per livello acqua + SCT-013-030 RMS)");
-
-    // Test di comunicazione per verificare se il sensore risponde
-    if (testADS1115Connection()) {
-        LOG_INFO("PozzoModule: Test di connessione ADS1118 completato con successo");
-        return true;
-    } else {
-        LOG_ERROR("PozzoModule: Test di connessione ADS1118 fallito");
-        return false;
+      LOG_INFO("PozzoModule: ADS1115.begin() completato con successo");
+      return true;
     }
 }
 
@@ -276,131 +253,18 @@ void PozzoModule::_writeToDisplay(uint8_t col, uint8_t row, const char *text, bo
 }
 
 
-bool PozzoModule::testADS1115Connection()
-{
-    LOG_INFO("PozzoModule: Esecuzione test di connessione ADS1115...");
 
-    // // Test 1: Verifica temperatura interna
-    // LOG_INFO("PozzoModule: Test 1 - Lettura temperatura interna");
-    // const double temperature = ads1118->getTemperature();
-    // LOG_INFO("PozzoModule: Temperatura interna: %f °C", temperature);
 
-    // if (temperature == 0.0) {
-    //     LOG_WARN("PozzoModule: Temperatura interna = 0, possibile problema di connessione");
-    // } else if (temperature < -40.0 || temperature > 125.0) {
-    //     LOG_WARN("PozzoModule: Temperatura interna fuori range (-40°C to 125°C): %f", temperature);
-    // } else {
-    //     LOG_INFO("PozzoModule: Temperatura interna nel range normale: %f °C", temperature);
-    // }
+void PozzoModule::sendTelemetry() {
 
-    // // Test 2: Verifica letture su tutti i canali
-    // LOG_INFO("PozzoModule: Test 2 - Lettura tutti i canali");
-    // const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3};
-    // bool anyChannelActive = false;
-
-    // for (int i = 0; i < 1; i++) {
-    //     // ads1118->setInputSelected(inputs[i]);
-    //     delay(100); // Aspetta stabilizzazione
-
-    //     const double milliVolts = ads1118->getMilliVolts(inputs[i]);
-    //     LOG_INFO("PozzoModule: Canale AIN_%d: %f mV", i, milliVolts);
-
-    //     if (milliVolts != 0.0) {
-    //         anyChannelActive = true;
-    //         LOG_INFO("PozzoModule: Canale AIN_%d attivo: %f mV", i, milliVolts);
-    //     }
-    // }
-
-    // // Test 3: Test con tensione di riferimento (se disponibile)
-    // LOG_INFO("PozzoModule: Test 3 - Test con tensione di riferimento");
-
-    // // Prova a leggere la tensione di alimentazione (se il sensore supporta questa funzione)
-    // // Questo è un test aggiuntivo per verificare se il sensore risponde
-
-    // // Test 4: Verifica configurazione
-    // // LOG_INFO("PozzoModule: Test 4 - Verifica configurazione");
-    // // LOG_INFO("PozzoModule: Sampling Rate attuale: %d", ads1118->getSamplingRate());
-    // // LOG_INFO("PozzoModule: Full Scale Range attuale: %d", ads1118->getFullScaleRange());
-
-    // // Valutazione finale
-    // if (temperature != 0.0 || anyChannelActive) {
-    //     LOG_INFO("PozzoModule: Test di connessione PASSATO - Sensore
-    //     risponde"); return true;
-    // } else {
-    //     LOG_ERROR("PozzoModule: Test di connessione FALLITO - Nessuna
-    //     risposta dal sensore"); LOG_ERROR("PozzoModule: Possibili cause:");
-    //     LOG_ERROR("PozzoModule: 1. Connessioni SPI errate");
-    //     LOG_ERROR("PozzoModule: 2. Alimentazione non presente");
-    //     LOG_ERROR("PozzoModule: 3. Sensore danneggiato");
-    //     LOG_ERROR("PozzoModule: 4. Pin CS non collegato correttamente");
-    //     return true;
-    // }
-    return true;
-}
-
-void PozzoModule::sendADS1118Telemetry()
-{
-    // if (!initialized) {
-    //     LOG_ERROR("PozzoModule: Modulo non inizializzato");
-    //     return;
-    // }
-
-    // // Legge tutti e 4 i canali dell'ADS1118
-    // float voltages[4];
-    // int16_t rawValues[4];
-
-    // const ads1118_channel_t inputs[] = {ads1118->AIN_0, ads1118->AIN_1, ads1118->AIN_2, ads1118->AIN_3};
-    // for (int channel = 0; channel < 4; channel++) {
-    //     voltages[channel] = ads1118->getMilliVolts(inputs[channel]);
-    //     // rawValues[channel] = readChannelRaw(channel);
-    //     LOG_INFO("PozzoModule: Channel %d: %.6f V (raw: %d)", channel, voltages[channel], rawValues[channel]);
-    // }
-
-    // // Crea il pacchetto di telemetria
-    // meshtastic_MeshPacket *p = router->allocForSending();
-    // p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-
-    // // Creazione di un oggetto JSON strutturato
-    // JSONObject jsonObj;
-    // jsonObj["type"] = new JSONValue("ads1118_metrics");
-
-    // // Creazione dell'array di metriche
-    // JSONArray metricsArray;
-
-    // // Aggiungi le metriche per ogni canale
-    // for (int channel = 0; channel < 4; channel++) {
-    //     JSONObject voltageMetric;
-    //     voltageMetric["name"] = new JSONValue("ads1118_ch" + String(channel) + "_voltage");
-    //     voltageMetric["value"] = new JSONValue(voltages[channel]);
-    //     voltageMetric["unit"] = new JSONValue("voltage");
-    //     voltageMetric["channel"] = new JSONValue(channel);
-
-    //     metricsArray.push_back(new JSONValue(voltageMetric));
-
-    //     JSONObject rawMetric;
-    //     rawMetric["name"] = new JSONValue("ads1118_ch" + String(channel) + "_raw");
-    //     rawMetric["value"] = new JSONValue(rawValues[channel]);
-    //     rawMetric["unit"] = new JSONValue("raw");
-    //     rawMetric["channel"] = new JSONValue(channel);
-
-    //     metricsArray.push_back(new JSONValue(rawMetric));
-    // }
-
-    // // Aggiungi l'array delle metriche all'oggetto principale
-    // jsonObj["metrics"] = new JSONValue(metricsArray);
-
-    // // Converti l'oggetto JSON in una stringa
-    // JSONValue *jsonValue = new JSONValue(jsonObj);
-    // std::string jsonData = jsonValue->Stringify();
-    // LOG_INFO("PozzoModule: JSON generato: %s", jsonData.c_str());
-    // delete jsonValue;
-
-    // memcpy(p->decoded.payload.bytes, jsonData.c_str(), jsonData.length());
-    // p->decoded.payload.size = jsonData.length();
-    // p->to = NODENUM_BROADCAST;
-    // p->decoded.want_response = false;
-    // p->priority = meshtastic_MeshPacket_Priority_RELIABLE;
-    // service->sendToMesh(p, RX_SRC_LOCAL);
+  CustomMetricsSender customMetricsSender;
+  customMetricsSender.beginMessage();
+  customMetricsSender.addMetric("wat_level", waterLevelMillimeters, "mm");
+  customMetricsSender.addMetric("pump_current", pumpCurrentAmps, "A");
+  customMetricsSender.addMetric("pump_power", pumpCurrentPower, "W");
+  customMetricsSender.addMetric("pump_state", pumpActualState , "bool");
+  customMetricsSender.send();
+  
 }
 
 #if HAS_SCREEN
@@ -700,6 +564,7 @@ int32_t PozzoModule::runOnce()
         if (initADS1115() & initDisplay()) {
             LOG_INFO("PozzoModule: ADS1115 inizializzato con successo");
             initialized = true;
+            initializationTime = millis();
             return 2000;
         } else {
             LOG_ERROR("PozzoModule: Errore nell'inizializzazione dell'ADS1115, riprovo tra 5 secondi");
@@ -808,13 +673,16 @@ int32_t PozzoModule::runOnce()
     //     LOG_INFO("PozzoModule: Telemetria ADS1118 inviata");
     // }
 
-    Throttle::execute(&lastSentToMesh, TELEMETRY_UPDATE_INTERVAL_MS,
-                      []() {
-                        // pozzoModule->sendADS1118Telemetry();
-                        LOG_INFO("PozzoModule: Telemetria ADS1118 inviata");
-                      }
-                    //   ,[]() { LOG_DEBUG("Skip send telemetry due to time throttling"); }
-    );
+    if (millis() - initializationTime >= 10000) {
+      Throttle::execute(&lastTelemetrySentTime, TELEMETRY_UPDATE_INTERVAL_MS,
+                        []() {
+                          pozzoModule->sendTelemetry();
+                          LOG_INFO("PozzoModule: Telemetria inviata");
+                        }
+                        //   ,[]() { LOG_DEBUG("Skip send telemetry due to time
+                        //   throttling"); }
+      );
+    }
 
 
 #if HAS_SCREEN

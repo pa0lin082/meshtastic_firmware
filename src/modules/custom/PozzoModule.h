@@ -41,8 +41,9 @@ class PozzoModule : private concurrency::OSThread
 
     
   private:
-    bool initialized;
-    uint32_t lastSentToMesh = 0;
+    bool initialized = false;
+    uint32_t initializationTime = 0;
+    uint32_t lastTelemetrySentTime = 0;
     uint32_t lastPumpSamplingCheck = 0;
     uint32_t lastDisplayUpdateTime = 0;
     uint32_t lastWaterLevelReadTime = 0;
@@ -66,9 +67,6 @@ class PozzoModule : private concurrency::OSThread
     uint32_t lastPumpStateCheck = 0;   // Ultimo controllo dello stato pompa
     
 
-    // Configurazione ADS1118
-    int _gain;
-    int _dataRate;
     String message;
 
     /** Inizializza l'ADS1118 */
@@ -77,11 +75,9 @@ class PozzoModule : private concurrency::OSThread
     /** Inizializza il display */
     bool initDisplay();
 
-    /** Test di comunicazione ADS1118 */
-    bool testADS1115Connection();
 
-    /** Invia telemetria ADS1118 */
-    void sendADS1118Telemetry();
+    /** Invia telemetria  */
+    void sendTelemetry();
 
     void readWaterLevel();
     void readPumpCurrent();
