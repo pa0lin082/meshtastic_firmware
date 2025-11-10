@@ -13,13 +13,14 @@
 #include <Adafruit_ADS1X15.h>
 #include <jm_LCM2004A_I2C.h>
 #include <Throttle.h>
+#include "memGet.h"
 
 
 #define PIN_RELAY_PUMP 45
 #define DISPLAY_UPDATE_INTERVAL_MS 1000
 #define TELEMETRY_UPDATE_INTERVAL_MS 10*60*1000 // 10 minuti
 #define PUMP_STATE_CHECK_INTERVAL_MS 250   // Intervallo controllo stato pompa
-#define PUMP_ON_CURRENT_THRESHOLD 0.5f      // Soglia corrente per considerare pompa accesa (Ampere)
+#define PUMP_ON_CURRENT_THRESHOLD 0.05f      // Soglia corrente per considerare pompa accesa (Ampere)
 
 
 #define USE_FFTPUMPMONITOR 0
@@ -51,8 +52,10 @@ static const float SCT013_SENSITIVITY = 0.03333f;  // 33.33 mV/A (1V/30A)
 // Scegliere un compromesso in base al sensore più critico:
 // - Per DC (livello acqua, corrente DC): 8-16 SPS è ottimale
 // - Per AC 50Hz: serve minimo 128-250 SPS
-static const int WATER_LEVEL_READ_SAMPLES = 3;  
+static const int WATER_LEVEL_READ_SAMPLES = 3;
 static const int PUMP_CURRENT_READ_SAMPLES = 1;
+
+static const bool BYPASS_PUMP_MONITOR_FOR_RELAY_CONTROL = true;
 
 
 // Dichiarazioni delle variabili globali necessarie
@@ -67,6 +70,7 @@ PozzoModule::PozzoModule()
       concurrency::OSThread("PozzoModule")
 {
     LOG_INFO("PozzoModule: Costruttore chiamato - l'inizializzazione ADS1115 avverrà in runOnce()");
+    // printMemoryInfo("COSTRUTTORE INIZIO");
     initDisplayBuffer();
     pinMode(PIN_RELAY_PUMP, OUTPUT);
     digitalWrite(PIN_RELAY_PUMP, LOW);
@@ -76,6 +80,7 @@ PozzoModule::PozzoModule()
 #if USE_PUMPMONITOR
     pumpMonitor = new PumpMonitor(&pumpCurrentAmps);
 #endif
+    // printMemoryInfo("COSTRUTTORE FINE");
 }
 
 PozzoModule::~PozzoModule()
@@ -176,6 +181,17 @@ ProcessMessage PozzoModule::handleReceived(const meshtastic_MeshPacket &mp)
             delete jsonValue;
         }
         LOG_INFO("========================================");
+    }
+
+    // Controlla se il payload è "pump_on" o "pump_off"
+    if (p.payload.size == 7 && memcmp(p.payload.bytes, "pump_on", 7) == 0) {
+        LOG_INFO("PozzoModule: Comando ricevuto - ACCENDI POMPA");
+        setPumpState(true);
+        sendTelemetry();
+    } else if (p.payload.size == 8 && memcmp(p.payload.bytes, "pump_off", 8) == 0) {
+        LOG_INFO("PozzoModule: Comando ricevuto - SPEGNI POMPA");
+        setPumpState(false);
+        sendTelemetry();
     }
 
     // Lascia che altri moduli possano processare il messaggio
@@ -384,9 +400,9 @@ void PozzoModule::writeToDisplay(bool firstUpdate) {
   // Mostra stato pompa
   char pumpStateStr[20];
   if (pumpExternalControl) {
-      snprintf(pumpStateStr, sizeof(pumpStateStr), "Stato: %s [EXT]", pumpActualState ? "ON " : "OFF");
+      snprintf(pumpStateStr, sizeof(pumpStateStr), "St: %s [ext] (%s) ", pumpActualState ? "ON " : "OFF", pumpDesiredState ? "ON" : "OFF");
   } else {
-      snprintf(pumpStateStr, sizeof(pumpStateStr), "Stato: %s", pumpActualState ? "ON " : "OFF");
+      snprintf(pumpStateStr, sizeof(pumpStateStr), "St: %s (%s)", pumpActualState ? "ON " : "OFF", pumpDesiredState ? "ON" : "OFF");
   }
   _writeToDisplay(0, 3, pumpStateStr, firstUpdate);
 
@@ -566,8 +582,9 @@ void PozzoModule::updatePumpActualState() {
                      newActualState ? "ON" : "OFF");
             pumpExternalControl = false;
         }
-        
+
         pumpActualState = newActualState;
+        sendTelemetry();
     }
 #endif
 }
@@ -586,7 +603,7 @@ void PozzoModule::setPumpState(bool turnOn) {
     
     // Se lo stato desiderato è diverso dallo stato attuale, invia impulso al relay
     // Con un deviatore, il relay deve solo invertire lo stato corrente
-    if (pumpDesiredState != pumpActualState) {
+    if (pumpDesiredState != pumpActualState || (BYPASS_PUMP_MONITOR_FOR_RELAY_CONTROL && pumpDesiredState != pumpRelayState)) {
       LOG_INFO("PozzoModule: Invio impulso al relay per cambiare stato pompa");
 
       pumpRelayState = !pumpRelayState;
@@ -660,6 +677,7 @@ int32_t PozzoModule::runOnce()
             LOG_INFO("PozzoModule: ADS1115 inizializzato con successo");
             initialized = true;
             initializationTime = millis();
+            // printMemoryInfo("DOPO INIZIALIZZAZIONE");
             return 2000;
         } else {
             LOG_ERROR("PozzoModule: Errore nell'inizializzazione dell'ADS1115, riprovo tra 5 secondi");
@@ -690,22 +708,22 @@ int32_t PozzoModule::runOnce()
         lastPumpStateCheck = millis();
     }
 
-    // Logica di controllo automatico della pompa basata sul livello acqua
-    // Determina se la pompa dovrebbe essere accesa o spenta
-    bool shouldPumpBeOn = (waterLevelMilliVolts > 1.5f);
+    // // Logica di controllo automatico della pompa basata sul livello acqua
+    // // Determina se la pompa dovrebbe essere accesa o spenta
+    // bool shouldPumpBeOn = (waterLevelMilliVolts > 1.5f);
     
-    // Se lo stato desiderato è diverso da quello che vorremmo, comanda il cambio
-    if (shouldPumpBeOn != pumpDesiredState) {
-        LOG_INFO("PozzoModule: Livello acqua richiede pompa %s (livello: %.3fV)", 
-                 shouldPumpBeOn ? "ON" : "OFF", waterLevelMilliVolts);
-        setPumpState(shouldPumpBeOn);
-    }
+    // // Se lo stato desiderato è diverso da quello che vorremmo, comanda il cambio
+    // if (shouldPumpBeOn != pumpDesiredState) {
+    //     LOG_INFO("PozzoModule: Livello acqua richiede pompa %s (livello: %.3fV)", 
+    //              shouldPumpBeOn ? "ON" : "OFF", waterLevelMilliVolts);
+    //     setPumpState(shouldPumpBeOn);
+    // }
 
 
 
 
 
-    if (!Throttle::isWithinTimespanMs(lastPumpSamplingCheck,1000)) {
+    if (!Throttle::isWithinTimespanMs(lastPumpSamplingCheck,2000)) {
 
 #if USE_FFTPUMPMONITOR
             if (fftPumpMonitor->hasSamplingWarning()) {
@@ -731,6 +749,10 @@ int32_t PozzoModule::runOnce()
 #if USE_PUMPMONITOR
 
             LOG_WARN("PumpMonitor: avg: %.3fA, stddev: %.3fA, min: %.3fA, max: %.3fA, status: %s on baseline: %.3fA", pumpMonitor->getAverage(), pumpMonitor->getStdDev(), pumpMonitor->getMin(), pumpMonitor->getMax(), pumpMonitor->getStatusString(), pumpMonitor->getBaseline());
+
+            // printMemoryInfo("DOPO PUMPMONITOR");
+
+
             // if (pumpMonitor->hasSamplingWarning()) {
             //     LOG_WARN("Campionamento lento: %.1f Hz", pumpMonitor->getSamplingFrequency());
             // } else {
@@ -797,6 +819,38 @@ int32_t PozzoModule::runOnce()
 #endif // HAS_SCREEN
 
     return 1; 
+}
+
+/**
+ * Stampa informazioni dettagliate sulla memoria (Heap e PSRAM)
+ */
+void PozzoModule::printMemoryInfo(const char *prefix)
+{
+    uint32_t freeHeap = memGet.getFreeHeap();
+    uint32_t totalHeap = memGet.getHeapSize();
+    uint32_t usedHeap = totalHeap - freeHeap;
+    
+    uint32_t freePsram = memGet.getFreePsram();
+    uint32_t totalPsram = memGet.getPsramSize();
+    uint32_t usedPsram = totalPsram - freePsram;
+    
+    LOG_INFO("========== MEMORIA %s ==========", prefix);
+    LOG_INFO("HEAP:  Usata: %6u bytes (%.1f%%) | Libera: %6u bytes | Totale: %u bytes", 
+             usedHeap, 
+             (totalHeap > 0) ? (usedHeap * 100.0f / totalHeap) : 0.0f,
+             freeHeap, 
+             totalHeap);
+    
+    if (totalPsram > 0) {
+        LOG_INFO("PSRAM: Usata: %6u bytes (%.1f%%) | Libera: %6u bytes | Totale: %u bytes", 
+                 usedPsram,
+                 (usedPsram * 100.0f / totalPsram),
+                 freePsram, 
+                 totalPsram);
+    } else {
+        LOG_INFO("PSRAM: Non disponibile");
+    }
+    LOG_INFO("==========================================");
 }
 
 // #endif // USE_ADS118_MODULE

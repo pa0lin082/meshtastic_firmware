@@ -102,6 +102,9 @@ class PozzoModule : public SinglePortModule, private concurrency::OSThread
     /** Scrive una stringa nel buffer del display e aggiorna solo i caratteri cambiati */
     void _writeToDisplay(uint8_t col, uint8_t row, const char *text, bool forceUpdate = false);
 
+    /** Stampa informazioni sulla memoria (heap e PSRAM) */
+    void printMemoryInfo(const char *prefix = "");
+
 #if HAS_SCREEN
     /** Scrive il valore del ADS1118 sul display */
     void writeToDisplay(bool firstUpdate=false);

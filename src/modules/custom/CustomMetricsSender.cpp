@@ -71,7 +71,7 @@ bool CustomMetricsSender::addMetric(const char *name, int value, const char *uni
     // Crea un oggetto metrica
     JSONObject metricObj;
     metricObj["name"] = new JSONValue(name);
-    metricObj["value"] = new JSONValue((double)value);
+    metricObj["value"] = new JSONValue((int)value);
     metricObj["unit"] = new JSONValue(unit);
 
     // Aggiungi la metrica all'array

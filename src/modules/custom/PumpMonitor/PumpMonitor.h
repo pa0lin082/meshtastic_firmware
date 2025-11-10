@@ -15,6 +15,7 @@ constexpr double EWMA_ALPHA = 0.05; // peso EWMA per baseline
 constexpr double EWMA_VAR_ALPHA = 0.02; // peso per varianza EWMA
 constexpr uint32_t PAUSE_THRESHOLD_MS = 500;
 constexpr uint32_t DWELL_TIME_MS = 2000;
+constexpr double MIN_CURRENT_THRESHOLD = 0.05; // Soglia minima (50mA) per ignorare rumore quando pompa spenta
 
 
 static double median(std::vector<float>& v) {
@@ -51,6 +52,7 @@ class PumpMonitor
     double sumSq = 0.0;
 
     // timing
+    unsigned long lastPrint;
     unsigned long lastTime;
     bool hasLastTime = false;
 
@@ -64,7 +66,7 @@ class PumpMonitor
 
     // spike handling
     int spikeCounter = 0;
-    const int spikeTransientLimit = 2; // quanti campioni considerare "transiente"
+    const int spikeTransientLimit = 4; // quanti campioni considerare "transiente"
 
     // thresholds
     const double baselineK = 4.0; // soglia in sigma per considerare "out of baseline"
@@ -278,16 +280,23 @@ class PumpMonitor
          if (samplesSeen < STARTUP_SAMPLES) {
             ++samplesSeen;
             // non valutare come anomalia reale; ma possiamo ancora stampare statistica
-            printStats(current, med, approxStd, ewma, ewmaStd);
+            // printStats(current, med, approxStd, ewma, ewmaStd);
             return;
          }
 
 
           // --- Spike detection (breve outlier)
         bool isSpike = false;
-        if (mad == 0.0) {
+        
+        // Ignora correnti troppo basse (rumore elettrico quando pompa spenta)
+        if (std::abs(current) < MIN_CURRENT_THRESHOLD && std::abs(med) < MIN_CURRENT_THRESHOLD) {
+            // Entrambi i valori sono sotto la soglia minima -> è solo rumore, non uno spike
+            // LOG_DEBUG("PumpMonitor: Ignorato potenziale spike (current=%.4fA, med=%.4fA sotto soglia MIN_CURRENT_THRESHOLD=%.3fA)", 
+            //           current, med, MIN_CURRENT_THRESHOLD);
+            isSpike = false;
+        } else if (mad == 0.0) {
             // caso in cui tutti i valori uguali -> se valore diverso anche leggermente, consideralo
-            isSpike = (std::abs(current - med) > 1e-6);
+            isSpike = (std::abs(current - med) > 1e-3);
         } else {
             isSpike = (std::abs(current - med) > SPIKE_K * mad);
         }
@@ -298,13 +307,13 @@ class PumpMonitor
             spikeCounter++;
             // se spike prolungato oltre soglia temporale, consideralo anomalia
             if (spikeCounter <= spikeTransientLimit) {
-                LOG_INFO("PumpMonitor: Spike transiente rilevato (sample %d) valore=%.2f", spikeCounter, current);
+                // LOG_INFO("PumpMonitor: Spike transiente rilevato (sample %d) valore=%.10f", spikeCounter, current);
                 // non aggiornare stato anomalia prolungata; stampa stats comunque
-                printStats(current, med, approxStd, ewma, ewmaStd);
+                // printStats(current, med, approxStd, ewma, ewmaStd);
                 // return;
             } else {
                 // prolungato -> treat as sustained anomaly
-                LOG_WARN("PumpMonitor: Spike prolungato: valore=%.2f", current);
+                LOG_WARN("PumpMonitor: Spike prolungato: valore=%.10f mad=%.10f med=%.10f curr-med=%.10f", current, mad, med, current - med);
                 // caduta intenzionale nel flusso di controllo per segnalarlo come anomalia
             }
         } else {
@@ -313,11 +322,16 @@ class PumpMonitor
 
 
          // --- Rilevazione deviazione prolungata rispetto alla EWMA
-         double diffFromBaseline = current - ewma;
+        double diffFromBaseline = current - ewma;
+        // LOG_INFO("PumpMonitor: ewma: %.2f, diff: %.2f threshold: %.2f", ewma, diffFromBaseline, baselineK * std::max(ewmaStd, minStdFloor));
          bool deviateHigh = (diffFromBaseline > baselineK * std::max(ewmaStd, minStdFloor));
          bool deviateLow = (diffFromBaseline < -baselineK * std::max(ewmaStd, minStdFloor));
 
 
+         if (now - lastPrint > 100) {
+            LOG_INFO("PumpMonitor: current: %.3f, ewma: %.3f, diff: %.3f threshold: %.3f", current, ewma, diffFromBaseline, baselineK * std::max(ewmaStd, minStdFloor));
+            lastPrint = now;
+         }
 
          // manteniamo timer per quanto tempo siamo "fuori soglia"
         if (deviateHigh || deviateLow) {
