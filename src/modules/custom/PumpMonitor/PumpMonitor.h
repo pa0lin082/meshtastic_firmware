@@ -1,5 +1,6 @@
 #pragma once
 #include "DebugConfiguration.h"
+#include "USBCDC.h"
 #include "input/InputBroker.h"
 #include "Observer.h"
 #include <Arduino.h>
@@ -27,12 +28,22 @@ static double median(std::vector<float>& v) {
 }
 
 enum PumpStatus {
-    PUMP_NORMAL,
-    PUMP_DRY_RUN,      // Pompa a vuoto (corrente troppo bassa)
-    PUMP_BLOCKED,      // Pompa bloccata (corrente troppo alta)
-    PUMP_DEGRADED,     // Pompa in degrado (calo prestazioni graduale)
-    PUMP_UNSTABLE,     // Pompa instabile (oscillazioni eccessive)
-    PUMP_SPIKE         // Picco anomalo rilevato
+  PUMP_NORMAL,
+  PUMP_DRY_RUN,  // Pompa a vuoto (corrente troppo bassa)
+  PUMP_BLOCKED,  // Pompa bloccata (corrente troppo alta)
+  PUMP_DEGRADED, // Pompa in degrado (calo prestazioni graduale)
+  PUMP_UNSTABLE, // Pompa instabile (oscillazioni eccessive)
+  PUMP_SPIKE     // Picco anomalo rilevato
+};
+
+// Struttura dati (12 bytes)
+struct __attribute__((packed)) BinaryLogEntry {
+    uint32_t timestamp;  // 4 bytes
+    float current;       // 4 bytes
+    float ewma;          // 4 bytes
+    float diffFromBaseline;          // 4 bytes
+    float limitHigh;          // 4 bytes
+    float limitLow;          // 4 bytes
 };
 
 class PumpMonitor
@@ -214,6 +225,7 @@ class PumpMonitor
         auto now = millis();
         float current = *currentValuePtr;
 
+       
 
         // --- inter-arrival time
         if (hasLastTime) {
@@ -323,15 +335,33 @@ class PumpMonitor
 
          // --- Rilevazione deviazione prolungata rispetto alla EWMA
         double diffFromBaseline = current - ewma;
+        double limitHigh = baselineK * std::max(ewmaStd, minStdFloor);
+        double limitLow = -baselineK * std::max(ewmaStd, minStdFloor);
         // LOG_INFO("PumpMonitor: ewma: %.2f, diff: %.2f threshold: %.2f", ewma, diffFromBaseline, baselineK * std::max(ewmaStd, minStdFloor));
-         bool deviateHigh = (diffFromBaseline > baselineK * std::max(ewmaStd, minStdFloor));
-         bool deviateLow = (diffFromBaseline < -baselineK * std::max(ewmaStd, minStdFloor));
+         bool deviateHigh = (diffFromBaseline > limitHigh);
+         bool deviateLow = (diffFromBaseline < limitLow);
 
 
          if (now - lastPrint > 100) {
             LOG_INFO("PumpMonitor: current: %.3f, ewma: %.3f, diff: %.3f threshold: %.3f", current, ewma, diffFromBaseline, baselineK * std::max(ewmaStd, minStdFloor));
             lastPrint = now;
          }
+
+
+         BinaryLogEntry entry = {
+           .timestamp = now,
+           .current = current,
+           .ewma = ewma,
+           .diffFromBaseline = diffFromBaseline,
+           .limitHigh = limitHigh,
+           .limitLow = limitLow
+        };
+
+        // Serializza l'entry in formato binario
+        size_t size = sizeof(entry);
+
+        // Scrivi l'entry nel buffer binario
+        Serial.write((uint8_t*)&entry, size);
 
          // manteniamo timer per quanto tempo siamo "fuori soglia"
         if (deviateHigh || deviateLow) {

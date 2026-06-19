@@ -457,7 +457,9 @@ void PozzoModule::readPumpCurrent() {
 
   if (readingMode != PUMP_CURRENT) {
     // LOG_WARN("PozzoModule: readPumpCurrent change ADS data rate to 475SPS");
-    ads->setDataRate(RATE_ADS1115_475SPS);
+    ads->setDataRate(RATE_ADS1115_860SPS);
+    // ads->setDataRate(RATE_ADS1115_475SPS);
+    // ads->setDataRate(RATE_ADS1115_8SPS);
 
      // Configura il gain per il range 0-1V
     ads->setGain(GAIN_FOUR); //< +/-1.024V range = Gain 4
@@ -818,7 +820,7 @@ int32_t PozzoModule::runOnce()
     // writeToDisplay();
 #endif // HAS_SCREEN
 
-    return 1; 
+    return 0; 
 }
 
 /**
